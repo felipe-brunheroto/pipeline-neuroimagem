@@ -10,8 +10,10 @@ Patient Files/
 *.dcm
 DICOMDIR
 
-# All converted / derived imaging output (NIfTI, sidecars, reports)
+# All converted / derived imaging output (NIfTI, sidecars, reports).
+# The glob also covers timestamped backups like 'BIDS_output.prev-YYYYMMDD-...'.
 BIDS_output/
+BIDS_output*/
 *.nii
 *.nii.gz
 
