@@ -83,10 +83,23 @@ OUTPUT_DIR = r"C:\Users\felip\OneDrive\Documentos\RMs CBR\BIDS_output"
 # ============================================================================
 # These are matched as lowercase SUBSTRINGS against the series description,
 # so we are NOT hardcoding exact sequence names. Add or remove words freely.
-# Order of checks (in categorize_series) is: fmap, then dwi, then anat, else misc.
+# Order of checks (in categorize_series) is:
+#     fmap -> perf -> swi -> dwi -> anat -> else misc
+# The more specific modalities (fmap/perf/swi) are checked BEFORE the broad
+# anat keywords so, e.g., an SWI magnitude image is not mistaken for anatomy.
 FMAP_KEYWORDS = ["field_map", "fieldmap", "field map", "fmap", "gre_field",
                  "b0map", "b0 map", "phasediff", "phase diff"]
-DWI_KEYWORDS  = ["dwi", "dti", "dki", "diffusion", "ep2d_diff", "_diff", "trace"]
+# Arterial spin labeling and scanner-derived perfusion maps. BIDS gives ASL its
+# own official datatype ("perf"), so we route these out of misc into perf/.
+PERF_KEYWORDS = ["asl", "perfusion", "perfusion_weighted", "pwi", "pasl",
+                 "pcasl", "casl", "_cbf", "cerebral_blood"]
+# Susceptibility-weighted imaging family. A Siemens SWI run exports four series:
+# magnitude, phase, the combined SWI image and the minIP. BIDS has no canonical
+# "swi" datatype, but grouping them in swi/ keeps misc/ clean and is unambiguous.
+SWI_KEYWORDS  = ["swi", "susceptibility", "mip_images", "minip", "min_ip",
+                 "venobold", "veno_bold", "mag_images", "pha_images"]
+DWI_KEYWORDS  = ["dwi", "dti", "dki", "diffusion", "difusao", "ep2d_diff",
+                 "_diff", "trace", "_adc", "adc"]
 ANAT_KEYWORDS = ["t1", "t2", "flair", "mprage", "mp2rage", "tfl", "spgr",
                  "fspgr", "bravo", "tse", "space", "black blood", "vibe",
                  "mp-rage", "t1w", "t2w", "pd"]
@@ -157,13 +170,18 @@ def categorize_series(description):
     Decide which BIDS-like folder a series belongs in, using simple keyword
     matching on the (lowercased) series description.
 
-    Returns one of: 'anat', 'dwi', 'fmap', 'misc'.
-    We check fmap and dwi BEFORE anat, because those are more specific and a
-    diffusion/fieldmap description should not be misread as anatomical.
+    Returns one of: 'anat', 'dwi', 'fmap', 'perf', 'swi', 'misc'.
+    We check the specific modalities (fmap/perf/swi/dwi) BEFORE anat, because a
+    perfusion/diffusion/fieldmap/SWI description should not be misread as
+    anatomical.
     """
     text = (description or "").lower()
     if any(k in text for k in FMAP_KEYWORDS):
         return "fmap"
+    if any(k in text for k in PERF_KEYWORDS):
+        return "perf"
+    if any(k in text for k in SWI_KEYWORDS):
+        return "swi"
     if any(k in text for k in DWI_KEYWORDS):
         return "dwi"
     if any(k in text for k in ANAT_KEYWORDS):
