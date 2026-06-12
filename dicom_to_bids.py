@@ -74,8 +74,13 @@ except ImportError:
 # OUTPUT_DIR : where the converted, organized results will be written.
 #              It will be created if it does not exist. It is kept SEPARATE
 #              from the input so your originals are never touched.
-INPUT_DIR  = r"C:\Users\felip\OneDrive\Documentos\RMs CBR"
-OUTPUT_DIR = r"C:\Users\felip\OneDrive\Documentos\RMs CBR\BIDS_output"
+#
+# The defaults are computed RELATIVE to this script's own folder, so the
+# pipeline runs as-is on any machine (this Mac, a Windows box, etc.) without
+# editing paths. You can still override both on the command line (see below).
+_HERE = Path(__file__).resolve().parent
+INPUT_DIR  = str(_HERE / "Patient Files")   # subject folders live in here
+OUTPUT_DIR = str(_HERE / "BIDS_output")     # results are written here
 
 
 # ============================================================================

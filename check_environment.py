@@ -87,6 +87,19 @@ def check_dcm2niix():
     # or None if it cannot. This is the simplest reliable way to detect it.
     location = shutil.which("dcm2niix")
 
+    # Fall back to the pip 'dcm2niix' package, which bundles the binary but may
+    # not place it on PATH. The main pipeline (find_dcm2niix) checks this too,
+    # so the environment report must agree with what the pipeline can actually
+    # find -- otherwise 'pip install dcm2niix' would look like it did nothing.
+    if location is None:
+        try:
+            import os
+            import dcm2niix as _dcm2niix_pkg
+            if os.path.exists(_dcm2niix_pkg.bin):
+                location = _dcm2niix_pkg.bin
+        except Exception:
+            pass
+
     if location is None:
         report_line(
             "dcm2niix",
@@ -100,7 +113,7 @@ def check_dcm2niix():
     # of crashing the whole script.
     try:
         result = subprocess.run(
-            ["dcm2niix", "--version"],
+            [location, "--version"],
             capture_output=True,   # capture the text it prints
             text=True,             # give us strings, not raw bytes
             timeout=30,            # never hang forever
@@ -175,23 +188,25 @@ def main():
     # If dcm2niix is missing, print friendly install instructions. We only show
     # this when needed, to keep the output clean when everything is fine.
     if not dcm2niix_ok:
-        print(" HOW TO INSTALL dcm2niix (Windows):")
-        print(" ---------------------------------")
-        print(" Easiest option - download the ready-made program:")
-        print("   1. Go to:  https://github.com/rordenlab/dcm2niix/releases")
-        print("   2. Download the file named like 'dcm2niix_win.zip'.")
-        print("   3. Unzip it. Inside you will find 'dcm2niix.exe'.")
-        print("   4. Put 'dcm2niix.exe' in a folder, e.g.  C:\\dcm2niix\\")
-        print("   5. Add that folder to your Windows PATH so the command works")
-        print("      from any terminal:")
-        print("        - Press Start, type 'environment variables', open")
-        print("          'Edit the system environment variables'.")
-        print("        - Click 'Environment Variables...'")
-        print("        - Under 'User variables', select 'Path' -> 'Edit'")
-        print("        - Click 'New', paste  C:\\dcm2niix  , click OK on all.")
-        print("   6. Close and reopen your terminal, then run this script again.")
+        print(" HOW TO INSTALL dcm2niix")
+        print(" -----------------------")
+        print(" Easiest (any OS) - the pip package bundles the dcm2niix binary:")
+        print("     python -m pip install -r requirements.txt")
+        print("   (or just:  python -m pip install dcm2niix )")
+        print(" This script and the pipeline both detect that bundled binary, so")
+        print(" you do NOT need to add anything to your PATH.")
         print()
-        print(" Alternative (if you use conda):  conda install -c conda-forge dcm2niix")
+        print(" macOS alternatives:")
+        print("     conda install -c conda-forge dcm2niix")
+        print("     brew install dcm2niix")
+        print()
+        print(" Linux alternative:")
+        print("     conda install -c conda-forge dcm2niix   (or your package manager)")
+        print()
+        print(" Windows alternative - download the ready-made program:")
+        print("   1. Go to:  https://github.com/rordenlab/dcm2niix/releases")
+        print("   2. Download 'dcm2niix_win.zip', unzip it to e.g. C:\\dcm2niix\\")
+        print("   3. Add that folder to your PATH, reopen the terminal, re-run.")
         print()
 
 

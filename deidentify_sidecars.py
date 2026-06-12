@@ -36,7 +36,10 @@ import sys
 import json
 from datetime import datetime
 
-OUTPUT_DIR = r"C:\Users\felip\OneDrive\Documentos\RMs CBR\BIDS_output"
+# Default to the BIDS_output folder next to this script, so it runs as-is on any
+# machine. Override by passing a path on the command line (see module docstring).
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "BIDS_output")
 
 # Fields removed per the DICOM Basic Confidentiality Profile + CLAUDE.md rule 3.
 FIELDS_TO_REMOVE = [
