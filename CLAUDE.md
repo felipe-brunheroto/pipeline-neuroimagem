@@ -7,7 +7,8 @@ FOLLOW the rules below before doing anything.
 ## What this project does
 Convert raw DICOM MRI data (one folder per subject, e.g. `CBR-003`) into
 NIfTI (`.nii.gz`) and organize it into a simple BIDS-like structure
-(`anat / dwi / fmap / misc`), with a provenance log and a validation report.
+(`anat / dwi / fmap / perf / swi / misc`), with a provenance log and a
+validation report.
 
 Main scripts (already written and tested):
 - `check_environment.py` — checks that Python, dcm2niix and pydicom are ready.

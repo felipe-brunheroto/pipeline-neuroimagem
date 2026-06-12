@@ -1,7 +1,8 @@
 # CBR / NEUROCOVID — DICOM → NIfTI → BIDS-like pipeline
 
 A small, **local-only** pipeline that converts raw DICOM MRI into NIfTI,
-organizes it into a BIDS-like layout (`anat / dwi / fmap / misc`), records
+organizes it into a BIDS-like layout (`anat / dwi / fmap / perf / swi / misc`),
+records
 provenance, validates key fields, and de-identifies the JSON sidecars to an
 Open-Science standard.
 
@@ -17,7 +18,7 @@ Open-Science standard.
 | File | What it is |
 |------|------------|
 | `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed. Changes nothing. |
-| `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/dwi/fmap/misc, writes provenance + validation reports. |
+| `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/dwi/fmap/perf/swi/misc, writes provenance + validation reports. |
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
