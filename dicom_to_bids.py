@@ -48,6 +48,7 @@ subject plus provenance.csv, validation_report.csv and conversion_log.txt.
 # Standard-library imports (always available, no install needed).
 # ----------------------------------------------------------------------------
 import os
+import re
 import sys
 import csv
 import json
@@ -170,6 +171,40 @@ def safe_label(name):
     return "sub-" + cleaned
 
 
+# Matches a CBR folder name: the subject digits, then an OPTIONAL visit number
+# after a '.', '-', '_' or space.  e.g. 'CBR-003-2', 'CBR-003.3', 'CBR-052'.
+SUBJECT_RE = re.compile(r"CBR[-_ ]?(\d+)(?:[.\-_ ](\d+))?", re.IGNORECASE)
+
+
+def parse_subject_session(folder_name):
+    """
+    Turn a raw subject-folder name into a (subject_label, session_label) pair.
+
+    The CBR folders encode a subject and, optionally, a visit/timepoint number:
+        'CBR-003-2' -> ('sub-CBR003', 'ses-2')   # subject 003, visit 2
+        'CBR-003.3' -> ('sub-CBR003', 'ses-3')   # SAME subject, visit 3
+        'CBR-052'   -> ('sub-CBR052', 'ses-1')   # single visit -> ses-1
+
+    Grouping by subject means repeat visits of one person nest under a single
+    sub-XXX folder (the BIDS longitudinal layout) instead of becoming separate
+    "subjects". We verified via StudyInstanceUID + StudyDate that the .2/.3
+    suffixes really are different scan dates, i.e. genuine timepoints.
+
+    We deliberately use the visit INDEX (not the scan date) as the session
+    label, to keep the output de-identified (CLAUDE.md rule 3 - no dates).
+    If the name doesn't match, we fall back to the old flat label so nothing
+    is ever silently dropped.
+    """
+    match = SUBJECT_RE.search(folder_name or "")
+    if not match:
+        return safe_label(folder_name), "ses-1"
+    subject_num = match.group(1)
+    visit = match.group(2)
+    subject_label = "sub-CBR" + subject_num
+    session_label = "ses-" + (visit if visit else "1")
+    return subject_label, session_label
+
+
 def categorize_series(description):
     """
     Decide which BIDS-like folder a series belongs in, using simple keyword
@@ -257,7 +292,7 @@ def scan_subject_series(subject_dir, log_lines):
     return series
 
 
-def run_dcm2niix(dcm2niix_path, subject_dir, work_dir, subject_label, log_lines):
+def run_dcm2niix(dcm2niix_path, subject_dir, work_dir, file_prefix, log_lines):
     """
     Run dcm2niix once for a subject, converting every series it finds.
 
@@ -273,7 +308,7 @@ def run_dcm2niix(dcm2niix_path, subject_dir, work_dir, subject_label, log_lines)
     dcm2niix automatically separates the output by series, so one call handles
     all of a subject's scans. We capture its text output for the log.
     """
-    file_pattern = subject_label + "_series%s_%d"
+    file_pattern = file_prefix + "_series%s_%d"
     command = [
         dcm2niix_path,
         "-z", "y",
@@ -398,9 +433,13 @@ def main():
 
     # --- process each subject ---------------------------------------------
     for subject_name, subject_dir in subjects:
-        subject_label = safe_label(subject_name)
+        # One folder = one subject + one visit/session. Repeat visits of the
+        # same person (e.g. CBR-003-2 and CBR-003.3) share the subject_label and
+        # only differ in session_label, so they nest under one sub-XXX folder.
+        subject_label, session_label = parse_subject_session(subject_name)
+        file_prefix = f"{subject_label}_{session_label}"
         log("", log_lines)
-        log(f"SUBJECT: {subject_name}  ->  {subject_label}", log_lines)
+        log(f"SUBJECT: {subject_name}  ->  {subject_label}/{session_label}", log_lines)
 
         # 1) Scan and group this subject's DICOMs by series.
         series = scan_subject_series(subject_dir, log_lines)
@@ -414,11 +453,13 @@ def main():
         for uid, info in series.items():
             series_by_number[str(info["number"])] = dict(info, uid=uid)
 
-        # 2) Convert with dcm2niix into a per-subject temporary work folder.
-        work_dir = os.path.join(work_root, subject_label)
+        # 2) Convert with dcm2niix into a temporary work folder that is unique
+        #    PER VISIT (file_prefix includes the session, so two visits of the
+        #    same subject never collide in the work area).
+        work_dir = os.path.join(work_root, file_prefix)
         os.makedirs(work_dir, exist_ok=True)
         ok = run_dcm2niix(dcm2niix_path, subject_dir, work_dir,
-                          subject_label, log_lines)
+                          file_prefix, log_lines)
         if not ok:
             log("    [warn] dcm2niix reported a problem; check the log.", log_lines)
 
@@ -452,8 +493,9 @@ def main():
 
             category = categorize_series(description)
 
-            # Make sub-XXX/<category>/ and move BOTH the .nii.gz and its .json.
-            dest_dir = os.path.join(output_dir, subject_label, category)
+            # Make sub-XXX/ses-Y/<category>/ and move BOTH the .nii.gz and json.
+            dest_dir = os.path.join(output_dir, subject_label, session_label,
+                                    category)
             os.makedirs(dest_dir, exist_ok=True)
             dest_nifti = os.path.join(dest_dir, nifti_path.name)
             shutil.move(str(nifti_path), dest_nifti)
@@ -468,6 +510,7 @@ def main():
             # --- provenance: one row linking output back to the DICOM series.
             provenance_rows.append({
                 "subject": subject_label,
+                "session": session_label,
                 "series_uid": uid,
                 "series_number": number,
                 "series_description": description,
@@ -495,6 +538,7 @@ def main():
                     status = compare_values(dicom_val, json_val, scale)
                     validation_rows.append({
                         "subject": subject_label,
+                        "session": session_label,
                         "series_uid": uid,
                         "field": field,
                         "dicom_value": dicom_val,
@@ -506,15 +550,16 @@ def main():
     provenance_csv = os.path.join(output_dir, "provenance.csv")
     with open(provenance_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "subject", "series_uid", "series_number", "series_description",
-            "modality", "category", "output_nifti", "output_json"])
+            "subject", "session", "series_uid", "series_number",
+            "series_description", "modality", "category",
+            "output_nifti", "output_json"])
         writer.writeheader()
         writer.writerows(provenance_rows)
 
     validation_csv = os.path.join(output_dir, "validation_report.csv")
     with open(validation_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "subject", "series_uid", "field", "dicom_value",
+            "subject", "session", "series_uid", "field", "dicom_value",
             "json_value", "status"])
         writer.writeheader()
         writer.writerows(validation_rows)
