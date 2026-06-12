@@ -1,0 +1,15 @@
+# Python dependencies for the CBR DICOM -> NIfTI -> BIDS-like pipeline.
+# Validated on Windows 11 with Python 3.12.10.
+#
+# Install with:   python -m pip install -r requirements.txt
+#
+# Note: the 'dcm2niix' pip package bundles the dcm2niix binary as a platform
+# wheel. If pip cannot find a wheel for your OS/Python, install dcm2niix
+# separately (conda: `conda install -c conda-forge dcm2niix`, or download the
+# release binary) and relax the pin below to just `dcm2niix`.
+
+pydicom==3.0.2
+dcm2niix==1.0.20260416
+
+# Optional, not required by the pipeline (only if you later read NIfTI in Python):
+# nibabel>=5.2

@@ -1,0 +1,29 @@
+# =====================================================================
+#  SAFETY NET — never commit/upload patient data or derived imaging.
+#  This file makes git refuse to track the data, so an accidental
+#  `git add .` cannot leak DICOMs or NIfTI outputs to a remote.
+# =====================================================================
+
+# Raw DICOM subject folders (one per subject, e.g. CBR-003, CBR-053)
+CBR-*/
+Patient Files/
+*.dcm
+DICOMDIR
+
+# All converted / derived imaging output (NIfTI, sidecars, reports)
+BIDS_output/
+*.nii
+*.nii.gz
+
+# Documents that may contain de-identified-but-sensitive study narrative
+*.docx
+
+# macOS housekeeping
+.DS_Store
+
+# Python housekeeping
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
