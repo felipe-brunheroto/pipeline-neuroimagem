@@ -180,10 +180,16 @@ def parse_subject_session(folder_name):
     """
     Turn a raw subject-folder name into a (subject_label, session_label) pair.
 
-    The CBR folders encode a subject and, optionally, a visit/timepoint number:
-        'CBR-003-2' -> ('sub-CBR003', 'ses-2')   # subject 003, visit 2
-        'CBR-003.3' -> ('sub-CBR003', 'ses-3')   # SAME subject, visit 3
-        'CBR-052'   -> ('sub-CBR052', 'ses-1')   # single visit -> ses-1
+    The CBR folders encode a subject and, optionally, a visit number. The
+    project's visit scheme is:
+        'CBR-XXX'    (no suffix) -> ses-1 : baseline
+        'CBR-XXX.2'              -> ses-2 : 6-month follow-up
+        'CBR-XXX.3'              -> ses-3 : 12-month follow-up
+    so the suffix number IS the session index, and an unsuffixed baseline folder
+    maps to ses-1. Examples:
+        'CBR-003.3' -> ('sub-CBR003', 'ses-3')   # subject 003, 12-month visit
+        'CBR-003-2' -> ('sub-CBR003', 'ses-2')   # SAME subject, 6-month visit
+        'CBR-052'   -> ('sub-CBR052', 'ses-1')   # baseline only
 
     Grouping by subject means repeat visits of one person nest under a single
     sub-XXX folder (the BIDS longitudinal layout) instead of becoming separate
@@ -191,7 +197,10 @@ def parse_subject_session(folder_name):
     suffixes really are different scan dates, i.e. genuine timepoints.
 
     We deliberately use the visit INDEX (not the scan date) as the session
-    label, to keep the output de-identified (CLAUDE.md rule 3 - no dates).
+    label, to keep the output de-identified (CLAUDE.md rule 3 - no dates), and
+    we keep the index from the folder name rather than renumbering sequentially,
+    so e.g. a subject with only the 6- and 12-month discs correctly reads as
+    ses-2/ses-3 (baseline absent) instead of being mislabeled ses-1/ses-2.
     If the name doesn't match, we fall back to the old flat label so nothing
     is ever silently dropped.
     """
