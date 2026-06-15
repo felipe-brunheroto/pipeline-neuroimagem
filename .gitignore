@@ -23,6 +23,9 @@ bids/
 freesurfer_subjects/
 *.mgz
 
+# Generated deliverables (PDF + handoff zip). Rebuilt by make_report.py / git archive.
+deliverable/
+
 # Documents that may contain de-identified-but-sensitive study narrative
 *.docx
 
