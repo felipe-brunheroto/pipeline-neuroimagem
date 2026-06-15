@@ -22,6 +22,7 @@ Open-Science standard.
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
 | `deface_anat.py` | Post-step: defaces the anatomical scans (T1/T2/FLAIR) with FreeSurfer `mideface`. Writes defaced copies to `BIDS_output/derivatives/defaced/`; originals untouched. Needs FreeSurfer 7.3+. |
 | `make_bids.py` | Post-step: builds a validator-clean, FAIR BIDS dataset of the anatomicals under `bids/` (proper `T1w`/`T2w`/`FLAIR` suffixes, `acq-` preserves protocol, plus `dataset_description.json`/`participants.tsv`/`sessions.tsv`). Reproducible, stdlib-only, never modifies `BIDS_output/`. |
+| `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**, not the conversion Mac): plans + runs the FreeSurfer longitudinal stream (cross → within-subject base → long). `--dry-run` prints the plan with no FreeSurfer needed. |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
 | `.gitignore` | Safety net: blocks git from ever tracking patient data. |
@@ -95,6 +96,35 @@ has it (e.g. the FreeSurfer/recon Mac): `deno run -A jsr:@bids/validator bids`,
 or `npx @bids/validator bids`. A quick local sanity check: `pip install pybids`
 then `python -c "from bids import BIDSLayout; print(BIDSLayout('bids'))"`.
 The data never leaves the machine in any case.
+
+---
+
+## Structural analysis (FreeSurfer 8 — on the dedicated recon Mac)
+
+Conversion/defacing/QC happen on the conversion Mac; the heavy recon runs on a
+separate **M4 / 64 GB Mac with FreeSurfer 8** (native Apple-Silicon — no Rosetta;
+needs a free FreeSurfer license registered to `$FREESURFER_HOME/license.txt`).
+
+Workflow:
+
+1. **Deface, then transfer.** Run `deface_anat.py` (this Mac or the recon Mac),
+   then move the defaced anatomicals to the recon Mac by an approved local
+   method — never personal cloud. Point recon at the defaced tree.
+2. **Source FreeSurfer 8**, then plan and run the longitudinal stream:
+   ```bash
+   export FREESURFER_HOME=/Applications/freesurfer/8.0.0
+   source $FREESURFER_HOME/SetUpFreeSurfer.sh
+
+   python run_recon_long.py --dry-run                       # preview the plan
+   python run_recon_long.py --input BIDS_output/derivatives/defaced \
+       --subjects-dir ~/fs_subjects --jobs 4 --threads 4    # cross -> base -> long
+   ```
+   ~8 GB RAM + `threads` cores per job; `--jobs 4` is comfortable on 64 GB.
+3. **QC** the surfaces (freeview; check the Euler number) before trusting any
+   subject.
+4. **Extract metrics** with `asegstats2table` / `aparcstats2table`, then fit
+   mixed-effects models (region ~ clinical_status × time + (1│subject)). With
+   N=4 this is a pilot — favour hypothesis-driven ROIs over whole-brain vertexwise.
 
 Then review, in `BIDS_output/`:
 - `validation_report.csv` — any `MISMATCH` row should be checked before trusting that scan.

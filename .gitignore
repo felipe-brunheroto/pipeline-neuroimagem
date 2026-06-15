@@ -19,6 +19,10 @@ bids/
 *.nii
 *.nii.gz
 
+# FreeSurfer recon output (patient-derived surfaces/volumes/stats).
+freesurfer_subjects/
+*.mgz
+
 # Documents that may contain de-identified-but-sensitive study narrative
 *.docx
 
