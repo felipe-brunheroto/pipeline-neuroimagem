@@ -20,6 +20,7 @@ Open-Science standard.
 | `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed. Changes nothing. |
 | `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/dwi/fmap/perf/swi/misc, writes provenance + validation reports. |
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
+| `deface_anat.py` | Post-step: defaces the anatomical scans (T1/T2/FLAIR) with FreeSurfer `mideface`. Writes defaced copies to `BIDS_output/derivatives/defaced/`; originals untouched. Needs FreeSurfer 7.3+. |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
 | `.gitignore` | Safety net: blocks git from ever tracking patient data. |
@@ -68,12 +69,21 @@ Open-Science standard.
 
 ## Running the pipeline
 
-```powershell
+Paths now default to `Patient Files/` (input) and `BIDS_output/` (output) next
+to the scripts, so on the primary machine you can run them with no arguments.
+Explicit paths still work as an override:
+
+```bash
 # 1. Convert + organize + validate
-python dicom_to_bids.py            "C:\Research\CBR" "C:\Research\CBR\BIDS_output"
+python dicom_to_bids.py
 
 # 2. De-identify the JSON sidecars (site/scanner fields)
-python deidentify_sidecars.py      "C:\Research\CBR\BIDS_output"
+python deidentify_sidecars.py
+
+# 3. Deface the anatomical scans (T1/T2/FLAIR) — needs FreeSurfer 7.3+ (mideface).
+#    Writes defaced copies to BIDS_output/derivatives/defaced/; originals kept.
+python deface_anat.py --dry-run    # preview (no FreeSurfer needed)
+python deface_anat.py              # actually deface
 ```
 
 Then review, in `BIDS_output/`:
@@ -92,10 +102,11 @@ until step 2 has run and an audit shows zero identifying fields.
 - **Diffusion `*_TRACEW` TR mismatch** in `validation_report.csv` is benign
   (dcm2niix issue #560 — it writes the estimated multi-volume TR). Image data is
   unaffected.
-- **`misc/` routing**: ASL/perfusion, SWI/phase/magnitude/mIP, and ADC maps fall
-  outside the simple anat/dwi/fmap keyword rules and land in `misc/`. Extend the
-  keyword lists in `dicom_to_bids.py` if you want finer routing (e.g. a `perf/`
-  folder for ASL).
-- **Defacing**: high-resolution anatomical scans (T1/T2/FLAIR) still contain
-  facial features and are re-identifiable. For data sharing beyond the secure
-  machine, deface them (e.g. `pydeface`) before release.
+- **`misc/` routing**: ASL/perfusion → `perf/`, the SWI family (SWI/phase/
+  magnitude/mIP) → `swi/`, and ADC maps → `dwi/`. Only localizers (`AAHead_Scout`)
+  now land in `misc/`. Extend the keyword lists in `dicom_to_bids.py` for finer
+  routing.
+- **Defacing**: run `deface_anat.py` (FreeSurfer `mideface`) on the anatomical
+  scans before any sharing beyond the secure machine. Defaced copies go to
+  `BIDS_output/derivatives/defaced/`; the originals are never modified. Deface
+  every timepoint with the same tool to keep longitudinal comparisons consistent.
