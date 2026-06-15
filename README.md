@@ -21,6 +21,7 @@ Open-Science standard.
 | `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/dwi/fmap/perf/swi/misc, writes provenance + validation reports. |
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
 | `deface_anat.py` | Post-step: defaces the anatomical scans (T1/T2/FLAIR) with FreeSurfer `mideface`. Writes defaced copies to `BIDS_output/derivatives/defaced/`; originals untouched. Needs FreeSurfer 7.3+. |
+| `make_bids.py` | Post-step: builds a validator-clean, FAIR BIDS dataset of the anatomicals under `bids/` (proper `T1w`/`T2w`/`FLAIR` suffixes, `acq-` preserves protocol, plus `dataset_description.json`/`participants.tsv`/`sessions.tsv`). Reproducible, stdlib-only, never modifies `BIDS_output/`. |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
 | `.gitignore` | Safety net: blocks git from ever tracking patient data. |
@@ -84,7 +85,16 @@ python deidentify_sidecars.py
 #    Writes defaced copies to BIDS_output/derivatives/defaced/; originals kept.
 python deface_anat.py --dry-run    # preview (no FreeSurfer needed)
 python deface_anat.py              # actually deface
+
+# 4. Build the FAIR, validator-clean BIDS dataset (anatomicals) under bids/.
+python make_bids.py
 ```
+
+To verify `bids/` is BIDS-valid, run the official validator on a machine that
+has it (e.g. the FreeSurfer/recon Mac): `deno run -A jsr:@bids/validator bids`,
+or `npx @bids/validator bids`. A quick local sanity check: `pip install pybids`
+then `python -c "from bids import BIDSLayout; print(BIDSLayout('bids'))"`.
+The data never leaves the machine in any case.
 
 Then review, in `BIDS_output/`:
 - `validation_report.csv` — any `MISMATCH` row should be checked before trusting that scan.
