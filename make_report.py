@@ -267,6 +267,12 @@ def build(path, stats):
         f"chegarem. <b>{pilot}</b> — planeje análise de ROIs guiada por hipótese "
         "com modelos de efeitos mistos, não vértice a vértice no cérebro inteiro.",
         st["body"]))
+    F.append(Paragraph(
+        "<b>Complemento opcional:</b> a ferramenta MINDSETS (segmentação SynthSeg, "
+        "verificada e executada offline) pode gerar volumes regionais em "
+        "derivatives/ para QC rápido e verificação cruzada — <b>sem substituir</b> "
+        "o FreeSurfer, que continua sendo o núcleo (espessura cortical + "
+        "longitudinal).", st["body"]))
 
     F.append(Paragraph("5. Guia de execução — Mac do recon (FreeSurfer 8)", st["h2"]))
     F.append(Paragraph("Pré-requisito: instale o FreeSurfer 8 (build macOS "
