@@ -95,11 +95,29 @@ echo ""
 echo "   Dockerfile (if present):"
 find "$SANDBOX" -iname 'Dockerfile*' | head -1 | while read -r f; do echo "   [$f]"; sed -n '1,60p' "$f" | sed 's/^/   /'; done
 
+# 8) Antivirus signature scan (ClamAV) --------------------------------------
+line; echo "8) Antivirus scan (ClamAV signatures)"
+if command -v clamscan >/dev/null 2>&1; then
+  echo "   using locally-installed clamscan; updating signatures (best-effort)..."
+  freshclam >/dev/null 2>&1 || true
+  clamscan -ri "$SANDBOX" || true
+elif command -v docker >/dev/null 2>&1; then
+  echo "   no local clamscan — running ClamAV via its official Docker image."
+  echo "   (this downloads the SCANNER itself, ~300 MB, not anything from the tool;"
+  echo "    first run is slow, later runs are cached.)"
+  docker run --rm -v "$PWD/$SANDBOX:/scan:ro" clamav/clamav clamscan -ri /scan || true
+else
+  echo "   ⚠️  SKIPPED — no antivirus available on this machine yet."
+  echo "   Easiest fix: install Docker Desktop (free), then just re-run this script"
+  echo "   and the AV scan happens automatically. Or run it yourself:"
+  echo "     docker run --rm -v \"\$PWD/$SANDBOX:/scan:ro\" clamav/clamav clamscan -ri /scan"
+fi
+
 # Summary ---------------------------------------------------------------------
 line
 echo "DONE — nothing from the tool was executed."
 echo ""
-echo "NEXT STEPS (only after you/Claude have read sections 6 and 7):"
+echo "NEXT STEPS (only after you/Claude have read sections 6, 7 and the AV result):"
 echo "  • If it ships a Dockerfile, build and TEST RUN it air-gapped on dummy data:"
 echo "      docker build -t mindsets ./$SANDBOX"
 echo "      docker run --rm --network none -v \"\$PWD/DUMMY:/data:ro\" -v \"\$PWD/out:/out\" mindsets"
