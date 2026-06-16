@@ -1,76 +1,92 @@
 #!/usr/bin/env bash
 # =============================================================================
-# scan_download.sh  —  SAFE, read-only check of a downloaded tool archive.
+# scan_download.sh  —  SAFE, read-only check of a downloaded tool.
 #
-# It ONLY inspects the zip. It NEVER runs the tool inside it, and it never
-# touches anything outside the folder you run it in. Use it to vet a
-# third-party download (e.g. the MINDSETS zip) before trusting it.
+# Accepts EITHER a .zip file OR an already-extracted folder (macOS / Safari
+# often auto-unzips downloads into a folder). It ONLY inspects; it NEVER runs
+# the tool, and never touches anything outside the target you give it.
 #
 # USAGE:
-#   ./scan_download.sh  MINDSETS.zip  [expected_sha256]
+#   ./scan_download.sh  MINDSETS.zip          [expected_sha256]
+#   ./scan_download.sh  MINDSETS-BrainSeg/    [expected_sha256]
 #
-# The optional second argument is the SHA-256 the MBZUAI team gave you; if you
-# pass it, the script confirms the download is intact and authentic.
+# The optional second argument (only meaningful for a .zip) is the SHA-256 the
+# MBZUAI team gave you; if you pass it, the script confirms the download is intact.
 # =============================================================================
 set -euo pipefail
 
-ZIP="${1:-}"
+TARGET="${1:-}"
 EXPECTED="${2:-}"
-SANDBOX="extracted"
 
 line() { printf '%s\n' "----------------------------------------------------------------------"; }
 
-if [[ -z "$ZIP" || ! -f "$ZIP" ]]; then
-  echo "Usage: ./scan_download.sh  path/to/file.zip  [expected_sha256]"
+if [[ -z "$TARGET" || ! -e "$TARGET" ]]; then
+  echo "Usage: ./scan_download.sh  <file.zip | extracted-folder>  [expected_sha256]"
   exit 1
+fi
+
+# Decide mode: a folder is scanned in place; a zip is checksummed + extracted.
+if [[ -d "$TARGET" ]]; then
+  MODE="folder"; SANDBOX="$TARGET"
+else
+  MODE="zip"; SANDBOX="extracted"
 fi
 
 echo "======================================================================"
 echo " SAFE DOWNLOAD CHECK (read-only — does NOT run the tool)"
-echo " file: $ZIP"
-echo " when: $(date)"
+echo " target: $TARGET   (mode: $MODE)"
+echo " when  : $(date)"
 echo "======================================================================"
 
-# 1) Checksum -----------------------------------------------------------------
-line; echo "1) SHA-256 checksum"
-GOT="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
-echo "   computed: $GOT"
-if [[ -n "$EXPECTED" ]]; then
-  if [[ "$GOT" == "$EXPECTED" ]]; then
-    echo "   expected: $EXPECTED"
-    echo "   RESULT  : ✅ MATCH — download is intact/authentic."
+if [[ "$MODE" == "zip" ]]; then
+  # 1) Checksum ---------------------------------------------------------------
+  line; echo "1) SHA-256 checksum"
+  GOT="$(shasum -a 256 "$TARGET" | awk '{print $1}')"
+  echo "   computed: $GOT"
+  if [[ -n "$EXPECTED" ]]; then
+    if [[ "$GOT" == "$EXPECTED" ]]; then
+      echo "   RESULT: ✅ MATCH — download is intact/authentic."
+    else
+      echo "   expected: $EXPECTED"
+      echo "   RESULT: ❌ MISMATCH — do NOT trust this file. Re-download / ask MBZUAI."
+      exit 2
+    fi
   else
-    echo "   expected: $EXPECTED"
-    echo "   RESULT  : ❌ MISMATCH — do NOT trust this file. Re-download / ask MBZUAI."
-    exit 2
+    echo "   (no expected hash given — ask MBZUAI for theirs and compare to the above)"
   fi
+
+  # 2) Path-traversal ("zip-slip") safety ------------------------------------
+  line; echo "2) Path-traversal / absolute-path check"
+  if unzip -l "$TARGET" | awk '{print $4}' | grep -qE '(^/|\.\./)'; then
+    echo "   RESULT: ❌ archive contains '..' or absolute paths — UNSAFE. Stop here."
+    exit 3
+  else
+    echo "   RESULT: ✅ no unsafe paths."
+  fi
+
+  # 3) Contents listing -------------------------------------------------------
+  line; echo "3) Contents (not extracted yet)"
+  unzip -l "$TARGET" | sed 's/^/   /'
+
+  # 4) Extract into a local sandbox folder ------------------------------------
+  line; echo "4) Extracting into ./$SANDBOX/ (stays inside this folder)"
+  rm -rf "$SANDBOX"; mkdir -p "$SANDBOX"
+  unzip -q "$TARGET" -d "$SANDBOX"
+  echo "   done."
 else
-  echo "   (no expected hash given — ask MBZUAI for theirs and compare to the above)"
+  line; echo "1-4) Skipped — target is an already-extracted FOLDER"
+  echo "   (macOS auto-unzipped it; that is normal and harmless — nothing ran)."
+  echo "   NOTE: checksum & tamper checks need the ORIGINAL .zip. If you still"
+  echo "   have it (check ~/Downloads or the Trash), running this on the .zip"
+  echo "   gives the fuller check. Otherwise, scanning the folder is fine."
+  line; echo "Contents:"
+  find "$SANDBOX" -maxdepth 2 | sed 's/^/   /' | head -60
 fi
-
-# 2) Path-traversal ("zip-slip") safety --------------------------------------
-line; echo "2) Path-traversal / absolute-path check"
-if unzip -l "$ZIP" | awk '{print $4}' | grep -qE '(^/|\.\./)'; then
-  echo "   RESULT: ❌ archive contains '..' or absolute paths — UNSAFE. Stop here."
-  exit 3
-else
-  echo "   RESULT: ✅ no unsafe paths."
-fi
-
-# 3) Contents listing ---------------------------------------------------------
-line; echo "3) Contents (not extracted yet)"
-unzip -l "$ZIP" | sed 's/^/   /'
-
-# 4) Extract into a local sandbox folder -------------------------------------
-line; echo "4) Extracting into ./$SANDBOX/ (stays inside this folder)"
-rm -rf "$SANDBOX"; mkdir -p "$SANDBOX"
-unzip -q "$ZIP" -d "$SANDBOX"
-echo "   done."
 
 # 5) Inventory: scripts, executables, Docker files ---------------------------
 line; echo "5) What's inside"
 echo "   Dockerfiles / compose:"
-find "$SANDBOX" -iname 'Dockerfile*' -o -iname 'docker-compose*' | sed 's/^/     /' || true
+find "$SANDBOX" \( -iname 'Dockerfile*' -o -iname 'docker-compose*' \) | sed 's/^/     /' || true
 echo "   Scripts (.sh .py):"
 find "$SANDBOX" \( -iname '*.sh' -o -iname '*.py' \) | sed 's/^/     /' | head -40 || true
 echo "   Executables / binaries (.exe .bin .app + +x files):"
@@ -81,8 +97,8 @@ echo "   Executables / binaries (.exe .bin .app + +x files):"
 line; echo "6) Network / telemetry / data-egress mentions (review these)"
 if grep -rnIE "curl|wget|requests|urllib|http://|https://|socket|upload|s3://|boto|api\.|token|telemetry|analytics" "$SANDBOX" >/tmp/_netscan 2>/dev/null; then
   sed 's/^/   /' /tmp/_netscan | head -60
-  echo "   (... review the lines above — they are not automatically bad, but you"
-  echo "    want to understand every outbound call before trusting the tool.)"
+  echo "   (... review the lines above — not automatically bad, but understand"
+  echo "    every outbound call before trusting the tool.)"
 else
   echo "   RESULT: ✅ no obvious network/egress strings in text files."
 fi
@@ -97,20 +113,21 @@ find "$SANDBOX" -iname 'Dockerfile*' | head -1 | while read -r f; do echo "   [$
 
 # 8) Antivirus signature scan (ClamAV) --------------------------------------
 line; echo "8) Antivirus scan (ClamAV signatures)"
+SCANDIR="$(cd "$SANDBOX" && pwd)"
 if command -v clamscan >/dev/null 2>&1; then
   echo "   using locally-installed clamscan; updating signatures (best-effort)..."
   freshclam >/dev/null 2>&1 || true
-  clamscan -ri "$SANDBOX" || true
+  clamscan -ri "$SCANDIR" || true
 elif command -v docker >/dev/null 2>&1; then
   echo "   no local clamscan — running ClamAV via its official Docker image."
   echo "   (this downloads the SCANNER itself, ~300 MB, not anything from the tool;"
   echo "    first run is slow, later runs are cached.)"
-  docker run --rm -v "$PWD/$SANDBOX:/scan:ro" clamav/clamav clamscan -ri /scan || true
+  docker run --rm -v "$SCANDIR:/scan:ro" clamav/clamav clamscan -ri /scan || true
 else
   echo "   ⚠️  SKIPPED — no antivirus available on this machine yet."
   echo "   Easiest fix: install Docker Desktop (free), then just re-run this script"
   echo "   and the AV scan happens automatically. Or run it yourself:"
-  echo "     docker run --rm -v \"\$PWD/$SANDBOX:/scan:ro\" clamav/clamav clamscan -ri /scan"
+  echo "     docker run --rm -v \"$SCANDIR:/scan:ro\" clamav/clamav clamscan -ri /scan"
 fi
 
 # Summary ---------------------------------------------------------------------
@@ -119,7 +136,7 @@ echo "DONE — nothing from the tool was executed."
 echo ""
 echo "NEXT STEPS (only after you/Claude have read sections 6, 7 and the AV result):"
 echo "  • If it ships a Dockerfile, build and TEST RUN it air-gapped on dummy data:"
-echo "      docker build -t mindsets ./$SANDBOX"
+echo "      docker build -t mindsets \"$SANDBOX\""
 echo "      docker run --rm --network none -v \"\$PWD/DUMMY:/data:ro\" -v \"\$PWD/out:/out\" mindsets"
 echo "  • Never point it at real patient data until it's cleared AND Prof. Viana"
 echo "    has approved local testing."
