@@ -120,14 +120,15 @@ if command -v clamscan >/dev/null 2>&1; then
   clamscan -ri "$SCANDIR" || true
 elif command -v docker >/dev/null 2>&1; then
   echo "   no local clamscan — running ClamAV via its official Docker image."
-  echo "   (this downloads the SCANNER itself, ~300 MB, not anything from the tool;"
-  echo "    first run is slow, later runs are cached.)"
-  docker run --rm -v "$SCANDIR:/scan:ro" clamav/clamav clamscan -ri /scan || true
+  echo "   (downloads the SCANNER itself, ~300 MB, not anything from the tool;"
+  echo "    --platform linux/amd64 lets it run on Apple Silicon via emulation.)"
+  docker run --rm --platform linux/amd64 -v "$SCANDIR:/scan:ro" \
+      clamav/clamav clamscan -ri /scan || true
 else
   echo "   ⚠️  SKIPPED — no antivirus available on this machine yet."
   echo "   Easiest fix: install Docker Desktop (free), then just re-run this script"
   echo "   and the AV scan happens automatically. Or run it yourself:"
-  echo "     docker run --rm -v \"$SCANDIR:/scan:ro\" clamav/clamav clamscan -ri /scan"
+  echo "     docker run --rm --platform linux/amd64 -v \"$SCANDIR:/scan:ro\" clamav/clamav clamscan -ri /scan"
 fi
 
 # Summary ---------------------------------------------------------------------
