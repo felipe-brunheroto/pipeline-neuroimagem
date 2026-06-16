@@ -118,7 +118,90 @@ def code(text, st):
     return Preformatted(esc(text), st["code"])
 
 
-def build(path):
+VISIT = {1: "baseline", 2: "6-month", 3: "12-month"}
+
+
+def visit_of(session_label):
+    import re
+    m = re.search(r"(\d+)", session_label or "")
+    idx = int(m.group(1)) if m else 1
+    return VISIT.get(idx, f"{(idx - 1) * 6}-month")
+
+
+def load_stats(output_dir):
+    """Derive the dataset figures from provenance.csv so the report never goes
+    stale. Returns None if there is no provenance yet (e.g. code-only machine)."""
+    import csv
+    prov = os.path.join(output_dir, "provenance.csv")
+    if not os.path.isfile(prov):
+        return None
+    subs, n_series, n_anat = {}, 0, 0
+    with open(prov, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            n_series += 1
+            subs.setdefault(r["subject"], set()).add(r["session"])
+            if r.get("category") == "anat":
+                n_anat += 1
+    sessions = {s: sorted(v) for s, v in subs.items()}
+    multi = {s: v for s, v in sessions.items() if len(v) >= 2}
+    return {
+        "sessions": sessions,
+        "n_sub": len(sessions),
+        "n_ses": sum(len(v) for v in sessions.values()),
+        "n_series": n_series,
+        "n_anat": n_anat,
+        "multi": sorted(multi),
+        "plan": {"cross": sum(len(v) for v in sessions.values()),
+                 "base": len(multi),
+                 "long": sum(len(v) for v in multi.values())},
+    }
+
+
+def data_bullets(stats):
+    """Section 3 bullets, built from real numbers when available."""
+    if stats is None:
+        counts = ("Subjects/sessions/series counts populate from provenance.csv "
+                  "once conversion has run on the data machine.")
+        anat = "the anatomicals"
+    else:
+        counts = (f"{stats['n_sub']} subjects, {stats['n_ses']} imaging sessions, "
+                  f"{stats['n_series']} series converted; everything traceable via "
+                  "provenance.csv and checked in validation_report.csv.")
+        anat = f"T1w / T2w / FLAIR, {stats['n_anat']} scans"
+    visit_line = ("Longitudinal visit scheme encoded as BIDS sessions: "
+                  "ses-1 = baseline, ses-2 = 6-month, ses-3 = 12-month.")
+    if stats is not None:
+        per = "; ".join(
+            f"{sub.replace('sub-', '')}: " + ", ".join(visit_of(s) for s in ses)
+            for sub, ses in sorted(stats["sessions"].items()))
+        visit_line += f" Per subject — {per}."
+    return [
+        counts,
+        visit_line,
+        "Modalities sorted into anat / dwi / fmap / perf (ASL) / swi / misc.",
+        f"BIDS dataset (bids/) is anatomical-only for now ({anat}), "
+        "validator-clean, with dataset_description / participants / sessions "
+        "metadata. JSON sidecars carry zero identifiers.",
+        "Defacing is in place (FreeSurfer mideface), anat only, originals kept.",
+    ]
+
+
+def plan_bullets(stats):
+    """Section 4 recon-plan bullets, derived from the session structure."""
+    if stats is None:
+        return ["A cross-sectional run per timepoint,",
+                "an unbiased within-subject template per multi-visit subject,",
+                "a longitudinal run per timepoint of those subjects."]
+    p = stats["plan"]
+    subj = ", ".join(s.replace("sub-", "") for s in stats["multi"]) or "none yet"
+    return [
+        f"{p['cross']} cross-sectional runs (T1 + FLAIR-refined pial surface),",
+        f"{p['base']} within-subject templates ({subj} — the multi-visit subjects),",
+        f"{p['long']} longitudinal runs.",
+    ]
+
+
+def build(path, stats):
     st = build_styles()
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
@@ -153,18 +236,7 @@ def build(path):
     F.append(scripts_table(st))
 
     F.append(Paragraph("3. What the data looks like now", st["h2"]))
-    F.append(bullets([
-        "4 subjects, 6 imaging sessions, 102 series converted; everything "
-        "traceable via provenance.csv and checked in validation_report.csv.",
-        "Longitudinal visit scheme encoded as BIDS sessions: ses-1 = baseline, "
-        "ses-2 = 6-month, ses-3 = 12-month. (CBR003 & CBR011 have 6- and "
-        "12-month visits; CBR052 & CBR053 have baseline.)",
-        "Modalities sorted into anat / dwi / fmap / perf (ASL) / swi / misc.",
-        "BIDS dataset (bids/) is anatomical-only for now (T1w / T2w / FLAIR, "
-        "18 scans), validator-clean, with dataset_description / participants / "
-        "sessions metadata. JSON sidecars carry zero identifiers.",
-        "Defacing is in place (FreeSurfer mideface), anat only, originals kept.",
-    ], st))
+    F.append(bullets(data_bullets(stats), st))
 
     F.append(Paragraph("4. Structural analysis plan (FreeSurfer 8)", st["h2"]))
     F.append(Paragraph(
@@ -174,11 +246,7 @@ def build(path):
         "stream (Reuter et al., 2012): a cross-sectional run per timepoint, an "
         "unbiased within-subject template, then a longitudinal run per "
         "timepoint. For this dataset that is:", st["body"]))
-    F.append(bullets([
-        "6 cross-sectional runs (T1 + FLAIR-refined pial surface),",
-        "2 within-subject templates (CBR003, CBR011 — the multi-visit subjects),",
-        "4 longitudinal runs.",
-    ], st))
+    F.append(bullets(plan_bullets(stats), st))
     F.append(Paragraph(
         "Single-visit subjects get the cross-sectional run only and slot into "
         "the longitudinal stream automatically once follow-ups arrive. "
@@ -235,11 +303,17 @@ def build(path):
 
 
 def main():
-    out_dir = Path(__file__).resolve().parent / "deliverable"
+    here = Path(__file__).resolve().parent
+    stats = load_stats(str(here / "BIDS_output"))
+    out_dir = here / "deliverable"
     out_dir.mkdir(exist_ok=True)
     out_path = str(out_dir / "CBR_NEUROCOVID_pipeline_overview.pdf")
-    build(out_path)
-    print(f"wrote {out_path}")
+    build(out_path, stats)
+    if stats:
+        print(f"wrote {out_path}  ({stats['n_sub']} subjects, "
+              f"{stats['n_ses']} sessions, {stats['n_series']} series)")
+    else:
+        print(f"wrote {out_path}  (no provenance.csv found; generic counts)")
 
 
 if __name__ == "__main__":
