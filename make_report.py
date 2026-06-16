@@ -4,10 +4,11 @@ make_report.py
 
 Generate a polished, shareable PDF that summarizes the pipeline and gives the
 recon-side run guide. The PDF is meant to be shown on an iPad (Google Drive /
-Safari / Files all preview PDF natively) and handed to the FreeSurfer senior.
+Safari / Files all preview PDF natively) and handed to the team.
 
-It contains CODE/WORKFLOW description only - NO patient data, no images, no
-identifiers (subject codes like sub-CBR003 are de-identified study codes).
+Rendered text is in Brazilian Portuguese (the audience is the UFMG team);
+code, comments and shell commands stay in English. It contains CODE/WORKFLOW
+description only - NO patient data, no images, no identifiers.
 
 Run:
     python make_report.py                 # -> deliverable/CBR_NEUROCOVID_pipeline_overview.pdf
@@ -59,25 +60,30 @@ def build_styles():
                                 fontName="Helvetica-Bold"),
         "cell": ParagraphStyle("cell", parent=ss["Normal"], fontSize=9,
                                leading=12),
+        "rec": ParagraphStyle("rec", parent=ss["BodyText"], fontSize=9.6,
+                              leading=13, backColor=colors.HexColor("#eaf6ec"),
+                              borderColor=colors.HexColor("#2e7d32"),
+                              borderWidth=0.8, borderPadding=8, spaceBefore=4,
+                              spaceAfter=6),
     }
     return styles
 
 
-def bullets(items, st):
+def bullets(items, st, style="body"):
     return ListFlowable(
-        [ListItem(Paragraph(esc(t), st["body"]), leftIndent=10) for t in items],
+        [ListItem(Paragraph(esc(t), st[style]), leftIndent=10) for t in items],
         bulletType="bullet", start="circle", leftIndent=12)
 
 
 def scripts_table(st):
     rows = [
-        ["Script", "What it does", "Runs on"],
-        ["check_environment.py", "Verifies Python / dcm2niix / pydicom are ready.", "Either"],
-        ["dicom_to_bids.py", "DICOM → NIfTI (dcm2niix); sorts into anat/dwi/fmap/perf/swi/misc; writes provenance + validation.", "Felipe's Mac"],
-        ["deidentify_sidecars.py", "Strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 profile).", "Felipe's Mac"],
-        ["make_bids.py", "Builds the FAIR, validator-clean BIDS dataset of anatomicals (bids/).", "Felipe's Mac"],
-        ["deface_anat.py", "Defaces T1/T2/FLAIR with FreeSurfer mideface; originals kept.", "Recon Mac"],
-        ["run_recon_long.py", "Drives the FreeSurfer 8 longitudinal stream (cross → base → long).", "Recon Mac"],
+        ["Script", "O que faz", "Onde roda"],
+        ["check_environment.py", "Verifica se Python / dcm2niix / pydicom estão prontos.", "Ambos"],
+        ["dicom_to_bids.py", "DICOM → NIfTI (dcm2niix); organiza em anat/dwi/fmap/perf/swi/misc; gera proveniência + validação.", "Mac do Felipe"],
+        ["deidentify_sidecars.py", "Remove identificadores de instituição/equipamento dos sidecars JSON (perfil DICOM PS3.15).", "Mac do Felipe"],
+        ["make_bids.py", "Monta o conjunto BIDS FAIR e validado das imagens anatômicas (bids/).", "Mac do Felipe"],
+        ["deface_anat.py", "Remoção facial de T1/T2/FLAIR com o mideface do FreeSurfer; mantém os originais.", "Mac do recon"],
+        ["run_recon_long.py", "Conduz o fluxo longitudinal do FreeSurfer 8 (cross → base → long).", "Mac do recon"],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in row] for i, row in enumerate(rows)]
@@ -95,8 +101,8 @@ def scripts_table(st):
 
 
 def flow_bar(st):
-    stages = ["Convert", "De-identify", "Deface", "BIDS (FAIR)",
-              "Transfer", "recon-all\n(long.)", "QC", "Stats"]
+    stages = ["Converter", "Anonimizar", "Remoção\nfacial", "BIDS (FAIR)",
+              "Transferir", "recon-all\n(long.)", "QC", "Estatística"]
     cells = [Paragraph(esc(s).replace("\n", "<br/>"),
                        ParagraphStyle("f", parent=st["cell"], alignment=1,
                                       fontSize=8.4, leading=10,
@@ -118,14 +124,14 @@ def code(text, st):
     return Preformatted(esc(text), st["code"])
 
 
-VISIT = {1: "baseline", 2: "6-month", 3: "12-month"}
+VISIT = {1: "basal", 2: "6 meses", 3: "12 meses"}
 
 
 def visit_of(session_label):
     import re
     m = re.search(r"(\d+)", session_label or "")
     idx = int(m.group(1)) if m else 1
-    return VISIT.get(idx, f"{(idx - 1) * 6}-month")
+    return VISIT.get(idx, f"{(idx - 1) * 6} meses")
 
 
 def load_stats(output_dir):
@@ -158,46 +164,50 @@ def load_stats(output_dir):
 
 
 def data_bullets(stats):
-    """Section 3 bullets, built from real numbers when available."""
+    """Section 3 bullets, built from real numbers when available (pt-BR)."""
     if stats is None:
-        counts = ("Subjects/sessions/series counts populate from provenance.csv "
-                  "once conversion has run on the data machine.")
-        anat = "the anatomicals"
+        counts = ("As contagens de participantes/sessões/séries são preenchidas a "
+                  "partir de provenance.csv assim que a conversão rodar na máquina "
+                  "de dados.")
+        anat = "as anatômicas"
     else:
-        counts = (f"{stats['n_sub']} subjects, {stats['n_ses']} imaging sessions, "
-                  f"{stats['n_series']} series converted; everything traceable via "
-                  "provenance.csv and checked in validation_report.csv.")
-        anat = f"T1w / T2w / FLAIR, {stats['n_anat']} scans"
-    visit_line = ("Longitudinal visit scheme encoded as BIDS sessions: "
-                  "ses-1 = baseline, ses-2 = 6-month, ses-3 = 12-month.")
+        counts = (f"{stats['n_sub']} participantes, {stats['n_ses']} sessões de "
+                  f"imagem, {stats['n_series']} séries convertidas; tudo rastreável "
+                  "via provenance.csv e conferido em validation_report.csv.")
+        anat = f"T1w / T2w / FLAIR, {stats['n_anat']} aquisições"
+    visit_line = ("Esquema de visitas longitudinais codificado como sessões BIDS: "
+                  "ses-1 = basal, ses-2 = 6 meses, ses-3 = 12 meses.")
     if stats is not None:
         per = "; ".join(
             f"{sub.replace('sub-', '')}: " + ", ".join(visit_of(s) for s in ses)
             for sub, ses in sorted(stats["sessions"].items()))
-        visit_line += f" Per subject — {per}."
+        visit_line += f" Por participante — {per}."
     return [
         counts,
         visit_line,
-        "Modalities sorted into anat / dwi / fmap / perf (ASL) / swi / misc.",
-        f"BIDS dataset (bids/) is anatomical-only for now ({anat}), "
-        "validator-clean, with dataset_description / participants / sessions "
-        "metadata. JSON sidecars carry zero identifiers.",
-        "Defacing is in place (FreeSurfer mideface), anat only, originals kept.",
+        "Modalidades organizadas em anat / dwi / fmap / perf (ASL) / swi / misc.",
+        f"Conjunto BIDS (bids/) por enquanto só com anatômicas ({anat}), validado, "
+        "com metadados dataset_description / participants / sessions. Os sidecars "
+        "JSON não contêm nenhum identificador.",
+        "Remoção facial já implementada (mideface do FreeSurfer), apenas "
+        "anatômicas, com os originais preservados.",
     ]
 
 
 def plan_bullets(stats):
-    """Section 4 recon-plan bullets, derived from the session structure."""
+    """Section 4 recon-plan bullets, derived from the session structure (pt-BR)."""
     if stats is None:
-        return ["A cross-sectional run per timepoint,",
-                "an unbiased within-subject template per multi-visit subject,",
-                "a longitudinal run per timepoint of those subjects."]
+        return ["uma execução transversal por tempo,",
+                "um template intra-participante não enviesado por participante com "
+                "múltiplas visitas,",
+                "uma execução longitudinal por tempo desses participantes."]
     p = stats["plan"]
-    subj = ", ".join(s.replace("sub-", "") for s in stats["multi"]) or "none yet"
+    subj = ", ".join(s.replace("sub-", "") for s in stats["multi"]) or "nenhum ainda"
     return [
-        f"{p['cross']} cross-sectional runs (T1 + FLAIR-refined pial surface),",
-        f"{p['base']} within-subject templates ({subj} — the multi-visit subjects),",
-        f"{p['long']} longitudinal runs.",
+        f"{p['cross']} execuções transversais (T1 + superfície pial refinada com FLAIR),",
+        f"{p['base']} templates intra-participante ({subj} — os participantes com "
+        "múltiplas visitas),",
+        f"{p['long']} execuções longitudinais.",
     ]
 
 
@@ -206,97 +216,106 @@ def build(path, stats):
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=16*mm, bottomMargin=16*mm,
-                            title="CBR / NEUROCOVID pipeline overview")
+                            title="Visão geral do pipeline CBR / NEUROCOVID")
     F = []
 
-    F.append(Paragraph("CBR / NEUROCOVID neuroimaging pipeline", st["title"]))
-    F.append(Paragraph("DICOM → NIfTI → de-identified BIDS → defacing "
-                       "→ FreeSurfer 8 longitudinal structural analysis",
+    F.append(Paragraph("Pipeline de neuroimagem CBR / NEUROCOVID", st["title"]))
+    F.append(Paragraph("DICOM → NIfTI → BIDS desidentificado → remoção facial "
+                       "→ análise estrutural longitudinal no FreeSurfer 8",
                        st["subtitle"]))
     F.append(Spacer(1, 4))
-    F.append(Paragraph(f"Prepared {date.today().isoformat()} &nbsp;&middot;&nbsp; "
-                       "for the FreeSurfer recon lead &nbsp;&middot;&nbsp; "
-                       "<b>contains no patient data</b>", st["small"]))
+    F.append(Paragraph(f"Preparado em {date.today().isoformat()} &nbsp;&middot;&nbsp; "
+                       "para a equipe do projeto &nbsp;&middot;&nbsp; "
+                       "<b>não contém dados de pacientes</b>", st["small"]))
     F.append(HRFlowable(width="100%", thickness=1, color=ACCENT,
                         spaceBefore=8, spaceAfter=8))
 
-    F.append(Paragraph("1. What this is", st["h2"]))
+    F.append(Paragraph("1. O que é isto", st["h2"]))
     F.append(Paragraph(
-        "A small, local-only pipeline that turns raw scanner DICOMs into an "
-        "organized, de-identified, FAIR-aligned dataset and runs structural "
-        "brain analysis. The goal: compare each subject across timepoints "
-        "(longitudinal) and relate brain structure to clinical status "
-        "(between-subject). Everything below is built, tested, and version "
-        "controlled. Conversion/curation runs on Felipe's Mac; the heavy "
-        "FreeSurfer recon runs on the dedicated M4 / 64 GB Mac.", st["body"]))
+        "Um pipeline pequeno, executado apenas localmente, que transforma os "
+        "DICOMs brutos do scanner em um conjunto de dados organizado, "
+        "desidentificado e alinhado aos princípios FAIR, e realiza a análise "
+        "estrutural do cérebro. O objetivo: comparar cada participante ao longo "
+        "dos tempos (longitudinal) e relacionar a estrutura cerebral ao status "
+        "clínico (entre participantes). Tudo abaixo está construído, testado e "
+        "versionado. A conversão/curadoria roda no Mac do Felipe; o recon pesado "
+        "do FreeSurfer roda no Mac dedicado (M4 / 64 GB).", st["body"]))
 
-    F.append(Paragraph("2. The pipeline at a glance", st["h2"]))
+    F.append(Paragraph("2. O pipeline em um relance", st["h2"]))
     F.append(flow_bar(st))
     F.append(Spacer(1, 8))
     F.append(scripts_table(st))
 
-    F.append(Paragraph("3. What the data looks like now", st["h2"]))
+    F.append(Paragraph("3. Como estão os dados agora", st["h2"]))
     F.append(bullets(data_bullets(stats), st))
 
-    F.append(Paragraph("4. Structural analysis plan (FreeSurfer 8)", st["h2"]))
+    F.append(Paragraph("4. Plano de análise estrutural (FreeSurfer 8)", st["h2"]))
+    pilot = (f"Amostra pequena (N={stats['n_sub']}) = piloto" if stats
+             else "Amostra pequena = piloto")
     F.append(Paragraph(
-        "FreeSurfer 8 runs <b>natively on Apple Silicon</b> (no Rosetta), so "
-        "the M4 / 64 GB Mac is a good fit; FastSurfer is not needed (its "
-        "advantage is CUDA GPUs, which Macs lack). We use the longitudinal "
-        "stream (Reuter et al., 2012): a cross-sectional run per timepoint, an "
-        "unbiased within-subject template, then a longitudinal run per "
-        "timepoint. For this dataset that is:", st["body"]))
+        "O FreeSurfer 8 roda <b>nativamente no Apple Silicon</b> (sem Rosetta), "
+        "então o Mac M4 / 64 GB é uma boa escolha; o FastSurfer não é necessário "
+        "(sua vantagem são GPUs CUDA, que os Macs não têm). Usamos o fluxo "
+        "longitudinal (Reuter et al., 2012): uma execução transversal por tempo, "
+        "um template intra-participante não enviesado e, então, uma execução "
+        "longitudinal por tempo. Para este conjunto de dados, isso significa:",
+        st["body"]))
     F.append(bullets(plan_bullets(stats), st))
     F.append(Paragraph(
-        "Single-visit subjects get the cross-sectional run only and slot into "
-        "the longitudinal stream automatically once follow-ups arrive. "
-        "<b>N=4 is a pilot</b> — plan for hypothesis-driven ROI analysis with "
-        "mixed-effects models, not whole-brain vertexwise.", st["body"]))
+        "Participantes com uma única visita recebem apenas a execução transversal "
+        "e entram no fluxo longitudinal automaticamente quando os retornos "
+        f"chegarem. <b>{pilot}</b> — planeje análise de ROIs guiada por hipótese "
+        "com modelos de efeitos mistos, não vértice a vértice no cérebro inteiro.",
+        st["body"]))
 
-    F.append(Paragraph("5. Run guide — recon Mac (FreeSurfer 8)", st["h2"]))
-    F.append(Paragraph("Prerequisite: install FreeSurfer 8 (macOS <b>arm64</b> "
-                       "build) and place your free license at "
+    F.append(Paragraph("5. Guia de execução — Mac do recon (FreeSurfer 8)", st["h2"]))
+    F.append(Paragraph("Pré-requisito: instale o FreeSurfer 8 (build macOS "
+                       "<b>arm64</b>) e coloque sua licença gratuita em "
                        "$FREESURFER_HOME/license.txt. Python 3 + dcm2niix via "
                        "<font face='Courier'>pip install -r requirements.txt</font>. "
-                       "Then:", st["body"]))
+                       "Depois:", st["body"]))
     F.append(code(
-        "# 0)  Source FreeSurfer 8 (adjust the path to your install)\n"
+        "# 0)  Carregue o FreeSurfer 8 (ajuste o caminho da sua instalação)\n"
         "export FREESURFER_HOME=/Applications/freesurfer/8.0.0\n"
         "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n\n"
-        "# 1)  Preview the plan first (no FreeSurfer needed for this)\n"
+        "# 1)  Pré-visualize o plano (não precisa do FreeSurfer para isto)\n"
         "python3 run_recon_long.py --dry-run\n\n"
-        "# 2)  Deface the anatomicals (writes derivatives/defaced/, keeps originals)\n"
+        "# 2)  Remocao facial das anatomicas (gera derivatives/defaced/, mantem originais)\n"
         "python3 deface_anat.py\n\n"
-        "# 3)  Run the longitudinal stream on the defaced anat\n"
+        "# 3)  Rode o fluxo longitudinal sobre as anatomicas com remocao facial\n"
         "python3 run_recon_long.py \\\n"
         "        --input BIDS_output/derivatives/defaced \\\n"
         "        --subjects-dir ~/fs_subjects --jobs 4 --threads 4\n\n"
-        "# 4)  QC the surfaces, then extract metrics for stats\n"
-        "freeview ...                 # visual check; note the Euler number\n"
-        "asegstats2table / aparcstats2table   # -> tidy ROI tables", st))
-    F.append(Paragraph("~8 GB RAM and a few cores per job; <font face='Courier'>"
-                       "--jobs 4</font> is comfortable on 64 GB. Completed runs "
-                       "are skipped automatically.", st["small"]))
+        "# 4)  QC das superficies, depois extraia metricas para estatistica\n"
+        "freeview ...                 # verificacao visual; anote o numero de Euler\n"
+        "asegstats2table / aparcstats2table   # -> tabelas de ROI organizadas", st))
+    F.append(Paragraph("~8 GB de RAM e alguns núcleos por job; <font face='Courier'>"
+                       "--jobs 4</font> é confortável em 64 GB. Execuções já "
+                       "concluídas são puladas automaticamente.", st["small"]))
 
-    F.append(Paragraph("6. Notes &amp; caveats", st["h2"]))
+    F.append(Paragraph("6. Observações e ressalvas", st["h2"]))
     F.append(bullets([
-        "Patient data never travels with this bundle. Move DICOMs/derived "
-        "imaging only by approved institutional means — never personal cloud.",
-        "Deface before the structurals leave the secure machine; deface every "
-        "timepoint the same way to keep longitudinal comparisons consistent.",
-        "A benign 'RepetitionTime MISMATCH' on the derived diffusion TRACEW "
-        "series is expected (dcm2niix behavior); image data is unaffected.",
-        "Check scanner consistency (Manufacturer / field strength are retained) "
-        "— if subjects span scanners, harmonize (ComBat / longCombat) before stats.",
-        "Validate bids/ with the official validator on the recon Mac: "
+        "Os dados de pacientes nunca viajam com este pacote. Mova DICOMs/imagens "
+        "derivadas apenas por meios institucionais aprovados — nunca por nuvem "
+        "pessoal.",
+        "Faça a remoção facial antes de as anatômicas saírem da máquina segura; "
+        "use o mesmo método em todos os tempos para manter as comparações "
+        "longitudinais consistentes.",
+        "Um 'RepetitionTime MISMATCH' benigno na série de difusão derivada TRACEW "
+        "é esperado (comportamento do dcm2niix); os dados de imagem não são "
+        "afetados.",
+        "Verifique a consistência de scanner (Fabricante / intensidade de campo "
+        "são mantidos) — se os participantes usarem scanners diferentes, harmonize "
+        "(ComBat / longCombat) antes da estatística.",
+        "Valide o bids/ com o validador oficial no Mac do recon: "
         "deno run -A jsr:@bids/validator bids",
     ], st))
 
     F.append(Spacer(1, 10))
     F.append(HRFlowable(width="100%", thickness=0.6, color=GREY))
-    F.append(Paragraph("Generated by make_report.py. Code is version-controlled; "
-                       "this PDF and the accompanying scripts contain no patient "
-                       "data and are safe to share with the project team.",
+    F.append(Paragraph("Gerado por make_report.py. O código é versionado; este PDF "
+                       "e os scripts que o acompanham não contêm dados de pacientes "
+                       "e podem ser compartilhados com a equipe do projeto.",
                        st["small"]))
 
     doc.build(F)
