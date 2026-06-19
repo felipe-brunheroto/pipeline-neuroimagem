@@ -23,6 +23,8 @@ Open-Science standard.
 | `deface_anat.py` | Post-step: defaces the anatomical scans (T1/T2/FLAIR) with FreeSurfer `mideface`. Writes defaced copies to `BIDS_output/derivatives/defaced/`; originals untouched. Needs FreeSurfer 7.3+. |
 | `make_bids.py` | Post-step: builds a validator-clean, FAIR BIDS dataset of the anatomicals under `bids/` (proper `T1w`/`T2w`/`FLAIR` suffixes, `acq-` preserves protocol, plus `dataset_description.json`/`participants.tsv`/`sessions.tsv`). Reproducible, stdlib-only, never modifies `BIDS_output/`. |
 | `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**, not the conversion Mac): plans + runs the FreeSurfer longitudinal stream (cross → within-subject base → long). `--dry-run` prints the plan with no FreeSurfer needed. |
+| `extract_fs_stats.py` | Final step: wraps `asegstats2table`/`aparcstats2table` into tidy per-region volume/thickness/area tables (`derivatives/fs_tables/`). `--dry-run` prints the plan. |
+| `Pipeline_Alunos/` | **Student teaching package** (Brazilian Portuguese, non-programmer-friendly): double-click `iniciar.command` → guided menu (`passos.py`) that runs each step; `GUIA_DO_ALUNO.pdf` walkthrough; FAIR/safety notes. Runs with no Claude account. |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
 | `.gitignore` | Safety net: blocks git from ever tracking patient data. |

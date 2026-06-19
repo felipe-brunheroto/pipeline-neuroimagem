@@ -1,0 +1,26 @@
+SOBRE FAIR E POR QUE FAZEMOS ASSIM
+==================================
+
+FAIR quer dizer que os dados e métodos devem ser:
+  - Findable (Localizáveis)   - bem nomeados e descritos (BIDS)
+  - Accessible (Acessíveis)   - guardados de forma organizada
+  - Interoperable (Interoperáveis) - em formatos padrão (NIfTI, BIDS)
+  - Reusable (Reutilizáveis)  - com proveniência e instruções claras
+
+Como este pipeline respeita isso:
+  - Cada imagem gerada pode ser rastreada até o exame de origem
+    (arquivo provenance.csv).
+  - As imagens viram o formato padrão BIDS (pasta bids/), que
+    qualquer ferramenta de neuroimagem entende.
+  - Os arquivos .json são desidentificados (sem instituição,
+    equipamento, nome ou data de nascimento).
+  - As imagens estruturais passam por remoção facial antes de
+    qualquer compartilhamento.
+  - Tudo é feito por programas abertos e versionados; nada é
+    "caixa-preta".
+
+Privacidade vem primeiro:
+  - Dados de pacientes ficam SEMPRE neste computador.
+  - Plataformas em nuvem (incluindo a do parceiro MBZUAI) NÃO
+    recebem os DICOM. No máximo, recebem tabelas já
+    desidentificadas, para conferência (QC), com autorização.

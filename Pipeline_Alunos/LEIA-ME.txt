@@ -1,0 +1,31 @@
+============================================================
+  PIPELINE CBR  —  PASTA DO ALUNO
+============================================================
+
+Bem-vindo(a)! Você vai aprender a transformar imagens de
+ressonância (DICOM) em medidas do cérebro (volumes), passo
+a passo, sem precisar saber programar.
+
+COMECE ASSIM (2 passos):
+
+  1) Abra o arquivo  GUIA_DO_ALUNO.pdf  e leia a seção 1.
+     (É curtinho e tira o medo do Terminal.)
+
+  2) Dê DOIS CLIQUES no arquivo  iniciar.command
+     -> abre um menu em português. Escolha um número e siga.
+
+     Se o Mac disser que "não pode verificar o desenvolvedor":
+     clique com o botão direito em iniciar.command -> Abrir -> Abrir.
+     (Só na primeira vez.)
+
+O QUE TEM NESTA PASTA:
+  GUIA_DO_ALUNO.pdf      o guia completo, em português
+  iniciar.command        dê 2 cliques para abrir o menu guiado
+  passos.py              o menu (é o que o iniciar.command abre)
+  make_student_guide.py  (uso do responsável) gera o GUIA em PDF
+  SOBRE_FAIR.txt         por que fazemos assim (ciência aberta)
+
+REGRA DE OURO:
+  Os dados são de pacientes reais. Eles NUNCA saem deste
+  computador. Em caso de dúvida, PARE e chame o responsável.
+============================================================
