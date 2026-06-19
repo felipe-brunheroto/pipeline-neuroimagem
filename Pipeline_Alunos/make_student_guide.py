@@ -17,7 +17,8 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                TableStyle, HRFlowable, ListFlowable, ListItem)
+                                TableStyle, HRFlowable, ListFlowable, ListItem,
+                                Preformatted)
 
 ACCENT = colors.HexColor("#1f4e79")
 LIGHT = colors.HexColor("#eaf0f6")
@@ -53,6 +54,11 @@ def styles():
         "cellh": ParagraphStyle("ch", parent=ss["Normal"], fontSize=9,
                                 textColor=colors.white, fontName="Helvetica-Bold"),
         "cell": ParagraphStyle("c", parent=ss["Normal"], fontSize=8.8, leading=11.5),
+        "mono": ParagraphStyle("mono", parent=ss["Code"], fontName="Courier",
+                               fontSize=8.4, leading=11.2, textColor=ACCENT,
+                               backColor=LIGHT,
+                               borderColor=colors.HexColor("#c5d2e0"),
+                               borderWidth=0.6, borderPadding=8, spaceAfter=6),
     }
 
 
@@ -68,8 +74,9 @@ def steps_table(st):
         ["0", "Checar o ambiente",
          "Confere se as ferramentas estão instaladas. Não muda nada."],
         ["1", "Converter DICOM em NIfTI",
-         "Cria as imagens .nii.gz organizadas em BIDS_output/, com provenance.csv "
-         "e validation_report.csv. Os DICOM originais não são tocados."],
+         "Lê os exames da pasta de dados confirmada (seção 3) e cria as imagens "
+         ".nii.gz organizadas em BIDS_output/, com provenance.csv e "
+         "validation_report.csv. Os DICOM originais não são tocados."],
         ["2", "Desidentificar",
          "Remove identificadores dos arquivos .json. Só depois disto os dados "
          "estão desidentificados."],
@@ -88,6 +95,42 @@ def steps_table(st):
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in r] for i, r in enumerate(rows)]
     t = Table(data, colWidths=[9*mm, 52*mm, 109*mm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c5d2e0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return t
+
+
+def pointing_table(st):
+    """O que o item D do menu responde ao conferir a pasta, e o que fazer."""
+    rows = [
+        ["O menu diz…", "Significa…", "O que fazer"],
+        ["“Encontrei N pastas de exame com DICOM” (lista os nomes)",
+         "A pasta está certa: tem um exame por subpasta.",
+         "Confira se os nomes são os seus exames e pode converter (passo 1)."],
+        ["“Achei DICOM dentro de uma subpasta DICOM”",
+         "Você apontou para DENTRO de um exame, não para a pasta que contém os "
+         "exames.",
+         "Suba um nível: aponte para a pasta que tem dentro as CBR-xxx."],
+        ["“Esta pasta tem DICOM soltos, mas nenhuma subpasta de exame”",
+         "Os arquivos estão soltos, sem a organização de um exame por pasta.",
+         "Aponte para a pasta que contém as pastas dos exames, ou chame o "
+         "responsável."],
+        ["“Não encontrei nenhum arquivo DICOM aqui dentro”",
+         "Pasta errada, ou os exames não estão ali.",
+         "Confira o caminho (arraste a pasta de novo) ou peça ajuda."],
+        ["“Essa pasta não existe”",
+         "O caminho digitado/arrastado não corresponde a uma pasta.",
+         "Arraste a pasta para a janela em vez de digitar, e tente de novo."],
+    ]
+    data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
+             for c in r] for i, r in enumerate(rows)]
+    t = Table(data, colWidths=[52*mm, 56*mm, 62*mm], repeatRows=1)
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
@@ -143,13 +186,55 @@ def build(path):
         "direito em <b>iniciar.command</b> → <b>Abrir</b> → <b>Abrir</b>. Depois "
         "disso o duplo-clique funciona sempre.", st["warn"]))
 
-    F.append(Paragraph("3. Os passos, um a um", st["h2"]))
-    F.append(Paragraph("Faça <b>em ordem</b> (0 → 1 → 2 → …). Os passos 3, 5 e 6 "
-                       "precisam do FreeSurfer (já instalado no computador de "
-                       "Recon pelo responsável).", st["body"]))
+    # --- nova seção: onde ficam os arquivos e como apontar para eles --------
+    F.append(Paragraph("3. Onde ficam os arquivos (e como apontar para eles)",
+                       st["h2"]))
+    F.append(Paragraph(
+        "O passo 1 (converter DICOM) precisa saber em que pasta estão os exames. "
+        "Por padrão ele procura na pasta <b>Patient Files</b>, ao lado do "
+        "projeto, com <b>um exame por subpasta</b>:", st["body"]))
+    F.append(Preformatted(
+        "Pipeline Neuroimagem/          (a pasta do projeto)\n"
+        "  |- Patient Files/            <-- AQUI vao os exames (local padrao)\n"
+        "  |    |- CBR-003/             (um exame = uma pasta)\n"
+        "  |    |- CBR-003.3/           (visita de retorno do mesmo paciente)\n"
+        "  |    |- CBR-052/\n"
+        "  |    \\- ... (uma pasta por exame)\n"
+        "  |- Pipeline_Alunos/          (esta pasta: o menu do aluno)\n"
+        "  |    \\- iniciar.command\n"
+        "  \\- BIDS_output/              <-- resultados (o passo 1 cria sozinho)",
+        st["mono"]))
+    F.append(Paragraph(
+        "Se os seus dados estiverem em <b>outro lugar</b> (outro HD, pen-drive, "
+        "Downloads, ou uma estrutura de pastas diferente), <b>você não precisa "
+        "editar nada no código</b>. No menu, escolha o item "
+        "<b>D) Onde estão meus arquivos</b> e:", st["body"]))
+    F.append(bullets([
+        "ARRASTE a pasta dos exames para a janela do Terminal e aperte ENTER — "
+        "o caminho aparece sozinho (é o jeito mais fácil e à prova de erro de "
+        "digitação);",
+        "ou cole/digite o caminho da pasta; ou aperte ENTER sem nada para usar "
+        "o local padrão acima;",
+        "o menu confere a pasta na hora e diz, em português, o que encontrou "
+        "(quantos exames e com quais nomes) antes de converter qualquer coisa.",
+    ], st))
+    F.append(Paragraph("O que o menu responde — e o que fazer:", st["body"]))
+    F.append(pointing_table(st))
+    F.append(Paragraph(
+        "Padrão de qualidade e reprodutibilidade: a pasta que você confirmar "
+        "fica guardada em <b>local_dos_dados.txt</b>, e os resultados vão sempre "
+        "para a mesma pasta <b>BIDS_output/</b>. Assim, qualquer pessoa que "
+        "repita os passos com a mesma entrada obtém a mesma saída — e fica "
+        "registrado de onde os dados vieram.", st["rule"]))
+
+    F.append(Paragraph("4. Os passos, um a um", st["h2"]))
+    F.append(Paragraph("Faça <b>em ordem</b> (0 → 1 → 2 → …). No passo 1 o menu "
+                       "confirma antes a pasta dos exames (seção 3). Os passos "
+                       "3, 5 e 6 precisam do FreeSurfer (já instalado no "
+                       "computador de Recon pelo responsável).", st["body"]))
     F.append(steps_table(st))
 
-    F.append(Paragraph("4. Regras de ouro (segurança e FAIR)", st["h2"]))
+    F.append(Paragraph("5. Regras de ouro (segurança e FAIR)", st["h2"]))
     F.append(Paragraph(
         "Estes dados são de pacientes reais. Trate cada arquivo original como "
         "“somente leitura”.", st["rule"]))
@@ -164,7 +249,7 @@ def build(path):
         "responsável. Não “tente consertar” no escuro.",
     ], st))
 
-    F.append(Paragraph("5. Se algo der errado", st["h2"]))
+    F.append(Paragraph("6. Se algo der errado", st["h2"]))
     F.append(bullets([
         "“command not found” ou um passo do FreeSurfer falha: o FreeSurfer "
         "provavelmente não foi carregado nesta janela. Avise o responsável "

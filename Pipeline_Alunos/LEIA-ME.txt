@@ -18,6 +18,13 @@ COMECE ASSIM (2 passos):
      clique com o botão direito em iniciar.command -> Abrir -> Abrir.
      (Só na primeira vez.)
 
+ONDE FICAM OS EXAMES (DICOM):
+  O passo 1 procura, por padrão, na pasta "Patient Files" ao lado
+  do projeto. Se os SEUS dados estiverem em outro lugar (outro HD,
+  pen-drive, Downloads...), escolha o item "D" no menu: você pode
+  ARRASTAR a pasta para a janela e o menu confere se está certa
+  antes de converter. Ele lembra o local para a próxima vez.
+
 O QUE TEM NESTA PASTA:
   GUIA_DO_ALUNO.pdf      o guia completo, em português
   iniciar.command        dê 2 cliques para abrir o menu guiado

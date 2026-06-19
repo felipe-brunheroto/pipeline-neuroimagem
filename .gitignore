@@ -29,6 +29,10 @@ deliverable/
 # Documents that may contain de-identified-but-sensitive study narrative
 *.docx
 
+# Student menu: machine-specific path to the DICOM data folder (no patient
+# data, just a local path). Remembered per-computer, not shared.
+Pipeline_Alunos/local_dos_dados.txt
+
 # macOS housekeeping
 .DS_Store
 
