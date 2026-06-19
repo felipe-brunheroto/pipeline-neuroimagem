@@ -142,6 +142,50 @@ def pointing_table(st):
     return t
 
 
+def faq_table(st):
+    """Perguntas/empecilhos comuns (sobretudo num computador novo) + solucao."""
+    rows = [
+        ["Pergunta / sintoma", "O que fazer"],
+        ["Baixei tudo do Drive e NÃO tem a pasta dos exames (Patient Files).",
+         "É proposital: dados de paciente nunca vão para a nuvem. Copie os "
+         "exames separadamente para este computador e aponte com o item D do "
+         "menu (você pode ARRASTAR a pasta para a janela)."],
+        ["Dei dois cliques e abriu um editor de texto, não rodou nada.",
+         "O arquivo perdeu a permissão de execução na cópia. Abra o Terminal na "
+         "pasta Pipeline_Alunos e rode  python3 passos.py  (veja a seção 6)."],
+        ["“não pode verificar o desenvolvedor” / “mover para o lixo”.",
+         "É o Gatekeeper do macOS na primeira abertura. Clique com o botão "
+         "direito em iniciar.command → Abrir → Abrir (só na primeira vez)."],
+        ["“python3” não é reconhecido, ou o Mac pede para instalar ferramentas.",
+         "Aceite instalar as “Command Line Tools” (ou instale o Python pelo "
+         "python.org). Depois rode o passo 0 para conferir."],
+        ["O passo 0 diz que falta o dcm2niix (ou o pydicom).",
+         "Na pasta do projeto, rode  python3 -m pip install -r requirements.txt  "
+         "e depois rode o passo 0 de novo. O próprio passo 0 mostra como."],
+        ["Os passos 3, 5 ou 6 dão erro de FreeSurfer.",
+         "O FreeSurfer 8 precisa estar instalado e “carregado” nesta janela do "
+         "Terminal. Isso é tarefa do responsável (um comando por janela)."],
+        ["Mudei a pasta do projeto de lugar; preciso reconfigurar algo?",
+         "Não. Tudo é relativo à pasta do projeto, e o item D reaponta os dados "
+         "onde estiverem. Só o local salvo (local_dos_dados.txt) é por máquina."],
+        ["Onde ficam os resultados?",
+         "Dentro do projeto: BIDS_output/ (passos 1–3), bids/ (passo 4) e "
+         "derivatives/ (passos 5–6). Os DICOM originais nunca são alterados."],
+    ]
+    data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
+             for c in r] for i, r in enumerate(rows)]
+    t = Table(data, colWidths=[66*mm, 104*mm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c5d2e0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return t
+
+
 def build(path):
     st = styles()
     doc = SimpleDocTemplate(path, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm,
@@ -251,6 +295,11 @@ def build(path):
 
     F.append(Paragraph("6. Se algo der errado", st["h2"]))
     F.append(bullets([
+        "Dei dois cliques no iniciar.command e abriu um editor de texto (em vez "
+        "de rodar): o arquivo perdeu a permissão de execução ao ser copiado. "
+        "Abra o aplicativo Terminal, digite  cd  seguido de um espaço, ARRASTE a "
+        "pasta Pipeline_Alunos para a janela, aperte ENTER e rode  "
+        "python3 passos.py  — o menu é exatamente o mesmo.",
         "“command not found” ou um passo do FreeSurfer falha: o FreeSurfer "
         "provavelmente não foi carregado nesta janela. Avise o responsável "
         "(é só rodar o comando de ativação uma vez).",
@@ -262,6 +311,11 @@ def build(path):
         "Qualquer linha em vermelho com a palavra ERROR/MISMATCH: anote e "
         "mostre ao responsável antes de seguir.",
     ], st))
+
+    F.append(Paragraph("7. Perguntas frequentes (FAQ)", st["h2"]))
+    F.append(Paragraph("Especialmente úteis na <b>primeira vez</b> num computador "
+                       "novo (ex.: o Mac de Recon recém-preparado).", st["body"]))
+    F.append(faq_table(st))
 
     F.append(Spacer(1, 8))
     F.append(HRFlowable(width="100%", thickness=0.6, color=GREY))
