@@ -29,7 +29,7 @@ O QUE TEM NESTA PASTA:
   GUIA_DO_ALUNO.pdf      o guia completo, em português
   iniciar.command        dê 2 cliques para abrir o menu guiado
   passos.py              o menu (é o que o iniciar.command abre)
-  make_student_guide.py  (uso do responsável) gera o GUIA em PDF
+  LEIA-ME.txt            este arquivo
   SOBRE_FAIR.txt         por que fazemos assim (ciência aberta)
 
 REGRA DE OURO:

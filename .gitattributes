@@ -1,0 +1,23 @@
+# =====================================================================
+#  Recon Mac package (git archive) — keep it RUNTIME-ONLY.
+#
+#  These files stay tracked in the repo (this Mac uses CLAUDE.md, and
+#  regenerates the reports/guide here), but `git archive` OMITS them so
+#  the zip uploaded to Drive contains only what is needed to RUN the
+#  pipeline on the (otherwise bare) Recon Mac. No Claude Code artifacts,
+#  no report/guide generators, no extra docs.
+#
+#  Rebuild the package with:
+#      git archive --format=zip -o ~/Desktop/pipeline_cbr.zip HEAD
+# =====================================================================
+
+CLAUDE.md              export-ignore
+README.md              export-ignore
+QUICKSTART.md          export-ignore
+scan_download.sh       export-ignore
+make_report.py         export-ignore
+make_options_report.py export-ignore
+make_student_guide.py  export-ignore
+
+# The .gitattributes itself is git plumbing; no reason to ship it.
+.gitattributes         export-ignore
