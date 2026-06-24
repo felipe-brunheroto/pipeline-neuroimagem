@@ -1,10 +1,12 @@
 # CBR / NEUROCOVID — DICOM → NIfTI → BIDS-like pipeline
 
 A small, **local-only** pipeline that converts raw DICOM MRI into NIfTI,
-organizes it into a BIDS-like layout (`anat / dwi / fmap / perf / swi / misc`),
-records
-provenance, validates key fields, and de-identifies the JSON sidecars to an
-Open-Science standard.
+organizes it into a working layout (`anat / func / dwi / fmap / perf / swi /
+misc / unknown`), records provenance, validates key fields, de-identifies the
+JSON sidecars to an Open-Science standard, and curates a validator-clean BIDS
+dataset (`bids/`) with proper derivatives and sourcedata. Unfamiliar series
+(e.g. a future BOLD project) are classified via an editable `series_map.csv`,
+and anything unrecognized is quarantined and reported rather than mis-sorted.
 
 > **Golden rule: code travels, data does not.** The scripts in this repo contain
 > no patient data and can be shared/version-controlled freely. Raw DICOMs and
@@ -17,13 +19,17 @@ Open-Science standard.
 
 | File | What it is |
 |------|------------|
-| `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed. Changes nothing. |
-| `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/dwi/fmap/perf/swi/misc, writes provenance + validation reports. |
+| `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed, **and creates the `Patient Files/` input folder** (with a README) on first run so data is dropped in the right place. |
+| `setup_workspace.py` | Creates/validates the `Patient Files/` drop folder and diagnoses common mistakes (pointing inside one exam, empty folder). Imported by the two above; also runnable directly. |
+| `series_classifier.py` | Shared rules that decide each series' datatype + BIDS suffix. Reads `series_map.csv` first, then built-in keywords; unrecognized → `unknown`. |
+| `series_map.csv` | **Operator-editable** map: teaches the pipeline new series (e.g. a future BOLD study) without code changes. |
+| `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/func/dwi/fmap/perf/swi/misc, writes provenance + validation + an **unknown-series report** and a readiness summary. |
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
-| `deface_anat.py` | Post-step: defaces the anatomical scans (T1/T2/FLAIR) with FreeSurfer `mideface`. Writes defaced copies to `BIDS_output/derivatives/defaced/`; originals untouched. Needs FreeSurfer 7.3+. |
-| `make_bids.py` | Post-step: builds a validator-clean, FAIR BIDS dataset of the anatomicals under `bids/` (proper `T1w`/`T2w`/`FLAIR` suffixes, `acq-` preserves protocol, plus `dataset_description.json`/`participants.tsv`/`sessions.tsv`). Reproducible, stdlib-only, never modifies `BIDS_output/`. |
-| `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**, not the conversion Mac): plans + runs the FreeSurfer longitudinal stream (cross → within-subject base → long). `--dry-run` prints the plan with no FreeSurfer needed. |
-| `extract_fs_stats.py` | Final step: wraps `asegstats2table`/`aparcstats2table` into tidy per-region volume/thickness/area tables (`derivatives/fs_tables/`). `--dry-run` prints the plan. |
+| `make_bids.py` | Builds the validator-clean, FAIR raw BIDS dataset under `bids/`: anatomicals (`T1w`/`T2w`/`FLAIR`) and functional (`bold`, when a task is known). `acq-` preserves the protocol; incomplete BOLD is held under `sourcedata/func/`. |
+| `make_derivatives.py` | Builds `bids/derivatives/scanner-derived/` (ADC, TRACEW, SWI, perfusion maps) and the `bids/sourcedata/` scaffolds for raw ASL (partially filled from the DICOMs) and the phase-only field map, plus quarantined `unknown` series. |
+| `deface_anat.py` | Defaces the anatomicals (T1/T2/FLAIR) with FreeSurfer `mideface`, reading `bids/` and writing `bids/derivatives/defaced/` with `desc-defaced` names + a derivatives `dataset_description.json`. Needs FreeSurfer 7.3+. Run AFTER `make_bids.py`. |
+| `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**): plans + runs the longitudinal stream (cross → base → long) into `bids/derivatives/freesurfer/`. `--dry-run` needs no FreeSurfer. |
+| `extract_fs_stats.py` | Final step: wraps `asegstats2table`/`aparcstats2table` into tidy tables under `bids/derivatives/freesurfer/stats/`. `--dry-run` prints the plan. |
 | `Pipeline_Alunos/` | **Student teaching package** (Brazilian Portuguese, non-programmer-friendly): double-click `iniciar.command` → guided menu (`passos.py`) that runs each step; `GUIA_DO_ALUNO.pdf` walkthrough; FAIR/safety notes. Runs with no Claude account. |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
@@ -78,20 +84,35 @@ to the scripts, so on the primary machine you can run them with no arguments.
 Explicit paths still work as an override:
 
 ```bash
-# 1. Convert + organize + validate
+# 1. Convert + organize + validate (also writes reports/unknown_series_report.csv)
 python dicom_to_bids.py
 
 # 2. De-identify the JSON sidecars (site/scanner fields)
 python deidentify_sidecars.py
 
-# 3. Deface the anatomical scans (T1/T2/FLAIR) — needs FreeSurfer 7.3+ (mideface).
-#    Writes defaced copies to BIDS_output/derivatives/defaced/; originals kept.
+# 3. Build the FAIR, validator-clean raw BIDS dataset (anat + func) under bids/.
+python make_bids.py
+
+# 4. Build derivatives + sourcedata: scanner-derived maps (ADC/TRACEW/SWI/
+#    perfusion) under bids/derivatives/scanner-derived/, and ASL + phase-only
+#    field map scaffolds under bids/sourcedata/.
+python make_derivatives.py
+
+# 5. Deface the anatomicals (T1/T2/FLAIR) — needs FreeSurfer 7.3+ (mideface).
+#    Reads bids/, writes bids/derivatives/defaced/ with desc-defaced names.
 python deface_anat.py --dry-run    # preview (no FreeSurfer needed)
 python deface_anat.py              # actually deface
-
-# 4. Build the FAIR, validator-clean BIDS dataset (anatomicals) under bids/.
-python make_bids.py
 ```
+
+**New project / unfamiliar series (e.g. BOLD):** the pipeline never crashes on
+data it doesn't recognize. Any series no rule matches is converted, parked in
+`bids/sourcedata/unknown/`, and listed in `reports/unknown_series_report.csv`
+with the DICOM hints needed to classify it; ready-to-edit rows are written to
+`reports/series_map_additions.csv`. Fill in the `datatype`/`suffix`, paste the
+rows into `series_map.csv`, and re-run — no code changes. BOLD runs are detected
+automatically (by name or DICOM `ImageType`); resting-state becomes
+`task-rest_bold`, and task runs are held under `sourcedata/func/` until you set
+`TaskName`.
 
 To verify `bids/` is BIDS-valid, run the official validator on a machine that
 has it (e.g. the FreeSurfer/recon Mac): `deno run -A jsr:@bids/validator bids`,
@@ -118,9 +139,11 @@ Workflow:
    source $FREESURFER_HOME/SetUpFreeSurfer.sh
 
    python run_recon_long.py --dry-run                       # preview the plan
-   python run_recon_long.py --input BIDS_output/derivatives/defaced \
-       --subjects-dir ~/fs_subjects --jobs 4 --threads 4    # cross -> base -> long
+   python run_recon_long.py --input bids/derivatives/defaced \
+       --jobs 4 --threads 4                                 # cross -> base -> long
    ```
+   Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative);
+   pass `--input bids/derivatives/defaced` to recon the privacy-preserving tree.
    ~8 GB RAM + `threads` cores per job; `--jobs 4` is comfortable on 64 GB.
 3. **QC** the surfaces (freeview; check the Euler number) before trusting any
    subject.
@@ -144,11 +167,21 @@ until step 2 has run and an audit shows zero identifying fields.
 - **Diffusion `*_TRACEW` TR mismatch** in `validation_report.csv` is benign
   (dcm2niix issue #560 — it writes the estimated multi-volume TR). Image data is
   unaffected.
-- **`misc/` routing**: ASL/perfusion → `perf/`, the SWI family (SWI/phase/
-  magnitude/mIP) → `swi/`, and ADC maps → `dwi/`. Only localizers (`AAHead_Scout`)
-  now land in `misc/`. Extend the keyword lists in `dicom_to_bids.py` for finer
-  routing.
-- **Defacing**: run `deface_anat.py` (FreeSurfer `mideface`) on the anatomical
-  scans before any sharing beyond the secure machine. Defaced copies go to
-  `BIDS_output/derivatives/defaced/`; the originals are never modified. Deface
-  every timepoint with the same tool to keep longitudinal comparisons consistent.
+- **Routing & new series**: routing rules live in `series_map.csv` +
+  `series_classifier.py` (no longer hardcoded in `dicom_to_bids.py`). Localizers
+  (`AAHead_Scout`) land in `misc/`; anything unrecognized goes to `unknown/` and
+  is reported for you to classify via `series_map.csv`.
+- **Diffusion is derived only**: this protocol exports `TRACEW` + `ADC` (no
+  bval/bvec), so they are curated as **derivatives** under
+  `derivatives/scanner-derived/`, not raw `dwi/`.
+- **ASL**: raw PASL is partially curated under `sourcedata/asl/` —
+  `PostLabelingDelay` (from DICOM `InversionTime`), `M0Type:Absent`, and bolus
+  cut-off fields (from `PASLType`/`BolusDuration`) are filled and annotated;
+  `BackgroundSuppression`, `TotalAcquiredPairs`, and the per-volume
+  `aslcontext.tsv` order must be confirmed by the researcher.
+- **Field map**: only the **phase** image was acquired (no magnitude), so a valid
+  BIDS fieldmap is impossible; it is kept under `sourcedata/fmap/` with a README.
+- **Defacing**: run `deface_anat.py` (FreeSurfer `mideface`) **after**
+  `make_bids.py`. Defaced copies go to `bids/derivatives/defaced/` with
+  `desc-defaced` names; the originals are never modified. Deface every timepoint
+  with the same tool to keep longitudinal comparisons consistent.

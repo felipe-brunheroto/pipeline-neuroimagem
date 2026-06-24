@@ -10,7 +10,7 @@ thickness / area / volume per region), so we are NOT reinventing anything.
 Runs on the recon Mac, after run_recon_long.py has produced FreeSurfer subjects.
 Use --dry-run anywhere to see the plan without FreeSurfer installed.
 
-OUTPUT (into <output-dir>, default BIDS_output/derivatives/fs_tables/):
+OUTPUT (into <output-dir>, default bids/derivatives/freesurfer/stats/):
   aseg_volumes.tsv          subcortical + global volumes per subject
   lh.aparc.thickness.tsv    left cortical thickness per region
   rh.aparc.thickness.tsv    right cortical thickness per region
@@ -81,14 +81,16 @@ def main():
     parser = argparse.ArgumentParser(
         description="Extract tidy FreeSurfer volume/thickness tables.")
     parser.add_argument("--subjects-dir",
-                        default=os.environ.get("SUBJECTS_DIR",
-                                               str(here / "freesurfer_subjects")),
+                        default=os.environ.get(
+                            "SUBJECTS_DIR",
+                            str(here / "bids" / "derivatives" / "freesurfer")),
                         help="FreeSurfer SUBJECTS_DIR (default: $SUBJECTS_DIR or "
-                             "./freesurfer_subjects).")
+                             "./bids/derivatives/freesurfer).")
     parser.add_argument("--output-dir",
-                        default=str(here / "BIDS_output" / "derivatives" /
-                                    "fs_tables"),
-                        help="Where to write the tables.")
+                        default=str(here / "bids" / "derivatives" /
+                                    "freesurfer" / "stats"),
+                        help="Where to write the tables "
+                             "(default: bids/derivatives/freesurfer/stats).")
     parser.add_argument("--measures", default="thickness,area,volume",
                         help="Cortical measures to extract (comma list).")
     parser.add_argument("--dry-run", action="store_true",

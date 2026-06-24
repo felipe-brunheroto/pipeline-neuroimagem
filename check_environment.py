@@ -209,6 +209,33 @@ def main():
         print("   3. Add that folder to your PATH, reopen the terminal, re-run.")
         print()
 
+    # ----------------------------------------------------------------------
+    # Workspace setup: make sure there is a clearly-named place to drop the
+    # DICOM data, so nothing is misdirected on the very first run. This runs
+    # regardless of the tool checks above. It only creates an EMPTY folder (plus
+    # a short README) if it does not exist yet -- it never touches data.
+    # ----------------------------------------------------------------------
+    try:
+        import setup_workspace
+        print()
+        print("-" * 70)
+        print(" WORKSPACE")
+        print("-" * 70)
+        input_dir, created = setup_workspace.ensure_input_folder()
+        if created:
+            print(f"  Created the input folder for your DICOM data:")
+            print(f"    {input_dir}")
+            print(f"  Drop ONE FOLDER PER EXAM inside it (see the README there).")
+        else:
+            state = setup_workspace.diagnose_data_folder(input_dir)
+            if state != "ok":
+                print("\n  (Add your exam folders there before running"
+                      " dicom_to_bids.py.)")
+        print()
+    except Exception as error:
+        # The workspace helper is a convenience; never let it break the check.
+        print(f"  (workspace setup skipped: {error})")
+
 
 # This standard line means: only run main() when the file is executed directly
 # (e.g. 'python check_environment.py'), not when it is imported by another file.

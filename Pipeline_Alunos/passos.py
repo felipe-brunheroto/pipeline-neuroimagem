@@ -49,22 +49,29 @@ PASSOS = [
      "dados de acordo com boas praticas de privacidade. So depois deste passo os "
      "dados podem ser considerados desidentificados.",
      False),
-    ("3", "Remocao facial (defacing)", "deface_anat.py",
-     "Remove o rosto das imagens estruturais (T1/T2/FLAIR) para que ninguem "
-     "possa reconstruir a face. Mantem os originais intactos. Precisa do "
-     "FreeSurfer instalado (roda no computador de Recon).",
-     True),
-    ("4", "Montar o conjunto BIDS", "make_bids.py",
-     "Organiza as imagens anatomicas no formato BIDS (padrao internacional, "
-     "FAIR), com nomes e metadados corretos, na pasta bids/. Nao mexe no que ja "
+    ("3", "Montar o conjunto BIDS (anat/func)", "make_bids.py",
+     "Organiza as imagens cruas no formato BIDS (padrao internacional, FAIR), "
+     "com nomes e metadados corretos, na pasta bids/. Cuida das estruturais "
+     "(T1/T2/FLAIR) e, quando houver, das funcionais (BOLD). Nao mexe no que ja "
      "existe.",
      False),
-    ("5", "FreeSurfer (recon longitudinal)", "run_recon_long.py",
+    ("4", "Montar derivados + sourcedata", "make_derivatives.py",
+     "Coloca os mapas derivados do scanner (ADC, TRACEW, SWI, perfusao) em "
+     "bids/derivatives/ e prepara ASL e o field map (fase) em bids/sourcedata/ "
+     "com instrucoes do que ainda falta preencher. Nao inventa valores.",
+     False),
+    ("5", "Remocao facial (defacing)", "deface_anat.py",
+     "Remove o rosto das imagens estruturais (T1/T2/FLAIR) para que ninguem "
+     "possa reconstruir a face. Le de bids/ e grava copias em "
+     "bids/derivatives/defaced/. Mantem os originais intactos. Precisa do "
+     "FreeSurfer (roda no computador de Recon). Rode DEPOIS do passo 3.",
+     True),
+    ("6", "FreeSurfer (recon longitudinal)", "run_recon_long.py",
      "Reconstroi o cerebro de cada exame com o FreeSurfer 8 e compara cada "
      "pessoa ao longo do tempo. E a etapa MAIS DEMORADA (horas por exame), por "
      "isso roda em pequenos lotes. Precisa do FreeSurfer instalado.",
      True),
-    ("6", "Extrair os volumes (tabelas)", "extract_fs_stats.py",
+    ("7", "Extrair os volumes (tabelas)", "extract_fs_stats.py",
      "Transforma a saida do FreeSurfer em tabelas simples (volumes e espessura "
      "por regiao do cerebro), prontas para abrir no Excel ou para estatistica. "
      "Este e o produto final desta etapa do treinamento.",
@@ -312,8 +319,8 @@ def cabecalho():
     print("\n" + "=" * 68)
     print("  PIPELINE CBR - menu guiado (do DICOM aos volumes do cerebro)")
     print("=" * 68)
-    print("  Mapa:  DICOM -> NIfTI -> desidentificar -> remocao facial ->")
-    print("         BIDS -> FreeSurfer -> VOLUMES")
+    print("  Mapa:  DICOM -> NIfTI -> desidentificar -> BIDS -> derivados ->")
+    print("         remocao facial -> FreeSurfer -> VOLUMES")
     print("  Dica:  faca os passos em ordem (0,1,2,...). Em caso de duvida,")
     print("         leia o GUIA_DO_ALUNO.pdf ou chame o responsavel.")
     print("=" * 68)

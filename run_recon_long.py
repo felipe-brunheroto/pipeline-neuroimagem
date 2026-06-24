@@ -173,6 +173,35 @@ def run_stage(stage_name, items, subjects_dir, jobs, force, env):
     return failures
 
 
+def write_fs_dataset_description(subjects_dir):
+    """Declare the FreeSurfer SUBJECTS_DIR as a BIDS derivatives dataset, and
+    .bidsignore the native FreeSurfer files (which are not BIDS-conforming)."""
+    import json
+    desc = os.path.join(subjects_dir, "dataset_description.json")
+    if not os.path.isfile(desc):
+        with open(desc, "w", encoding="utf-8") as f:
+            json.dump({
+                "Name": "CBR / NEUROCOVID FreeSurfer recon",
+                "BIDSVersion": "1.9.0",
+                "DatasetType": "derivative",
+                "GeneratedBy": [{
+                    "Name": "freesurfer",
+                    "Version": os.environ.get("FREESURFER_HOME", "8"),
+                    "Description": "recon-all longitudinal stream "
+                                   "(cross / base / long).",
+                }],
+                "SourceDatasets": [{"Description": "Raw (or defaced) anatomicals "
+                                                   "in this BIDS dataset."}],
+            }, f, indent="\t", ensure_ascii=False)
+            f.write("\n")
+    bidsignore = os.path.join(subjects_dir, ".bidsignore")
+    if not os.path.isfile(bidsignore):
+        with open(bidsignore, "w", encoding="utf-8") as f:
+            # FreeSurfer subject folders are not BIDS-named; exclude from the
+            # validator while keeping them inside the derivatives dataset.
+            f.write("sub-*/\nfsaverage/\nlogs/\n")
+
+
 def main():
     here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(
@@ -180,10 +209,11 @@ def main():
     parser.add_argument("--input", default=str(here / "bids"),
                         help="Anatomical root (default: ./bids).")
     parser.add_argument("--subjects-dir",
-                        default=os.environ.get("SUBJECTS_DIR",
-                                               str(here / "freesurfer_subjects")),
-                        help="FreeSurfer SUBJECTS_DIR (default: $SUBJECTS_DIR "
-                             "or ./freesurfer_subjects).")
+                        default=os.environ.get(
+                            "SUBJECTS_DIR",
+                            str(here / "bids" / "derivatives" / "freesurfer")),
+                        help="FreeSurfer SUBJECTS_DIR (default: $SUBJECTS_DIR or "
+                             "./bids/derivatives/freesurfer, a BIDS derivative).")
     parser.add_argument("--pial", choices=["flair", "t2", "none"], default="flair",
                         help="Refine pial surface with FLAIR or T2 (default: flair).")
     parser.add_argument("--threads", type=int, default=4,
@@ -243,6 +273,7 @@ def main():
     env = dict(os.environ)
     env["SUBJECTS_DIR"] = args.subjects_dir
     os.makedirs(args.subjects_dir, exist_ok=True)
+    write_fs_dataset_description(args.subjects_dir)
 
     fs_home = env.get("FREESURFER_HOME", "(unset)")
     print(f"\n using FREESURFER_HOME={fs_home}")

@@ -67,6 +67,13 @@ except ImportError:
     print("Fix it by running:   pip install pydicom")
     sys.exit(1)
 
+# Local helper modules (same folder). series_classifier holds the shared,
+# data-driven rules that decide each series' datatype + BIDS suffix; it also
+# reads the operator-editable series_map.csv. setup_workspace prepares/validates
+# the input folder so data is never misdirected on the first run.
+import series_classifier as sc
+import setup_workspace
+
 
 # ============================================================================
 # 1. CONFIGURATION  -  edit these two paths for your computer if you like.
@@ -85,30 +92,15 @@ OUTPUT_DIR = str(_HERE / "BIDS_output")     # results are written here
 
 
 # ============================================================================
-# 2. KEYWORD RULES for sorting series into anat / dwi / fmap / misc.
+# 2. SERIES CLASSIFICATION
 # ============================================================================
-# These are matched as lowercase SUBSTRINGS against the series description,
-# so we are NOT hardcoding exact sequence names. Add or remove words freely.
-# Order of checks (in categorize_series) is:
-#     fmap -> perf -> swi -> dwi -> anat -> else misc
-# The more specific modalities (fmap/perf/swi) are checked BEFORE the broad
-# anat keywords so, e.g., an SWI magnitude image is not mistaken for anatomy.
-FMAP_KEYWORDS = ["field_map", "fieldmap", "field map", "fmap", "gre_field",
-                 "b0map", "b0 map", "phasediff", "phase diff"]
-# Arterial spin labeling and scanner-derived perfusion maps. BIDS gives ASL its
-# own official datatype ("perf"), so we route these out of misc into perf/.
-PERF_KEYWORDS = ["asl", "perfusion", "perfusion_weighted", "pwi", "pasl",
-                 "pcasl", "casl", "_cbf", "cerebral_blood"]
-# Susceptibility-weighted imaging family. A Siemens SWI run exports four series:
-# magnitude, phase, the combined SWI image and the minIP. BIDS has no canonical
-# "swi" datatype, but grouping them in swi/ keeps misc/ clean and is unambiguous.
-SWI_KEYWORDS  = ["swi", "susceptibility", "mip_images", "minip", "min_ip",
-                 "venobold", "veno_bold", "mag_images", "pha_images"]
-DWI_KEYWORDS  = ["dwi", "dti", "dki", "diffusion", "difusao", "ep2d_diff",
-                 "_diff", "trace", "_adc", "adc"]
-ANAT_KEYWORDS = ["t1", "t2", "flair", "mprage", "mp2rage", "tfl", "spgr",
-                 "fspgr", "bravo", "tse", "space", "black blood", "vibe",
-                 "mp-rage", "t1w", "t2w", "pd"]
+# The rules that decide which datatype folder a series goes in (anat / func /
+# dwi / fmap / perf / swi / misc / unknown) -- and its BIDS suffix/entities --
+# now live in ONE shared place: series_classifier.py. That module first consults
+# the operator-editable series_map.csv (so a NEW project, e.g. a future BOLD
+# study, is taught by editing one CSV, not the code), then falls back to built-in
+# keyword rules. Anything neither layer recognizes comes back as "unknown" and is
+# quarantined + reported below rather than silently mis-sorted.
 
 
 # ============================================================================
@@ -171,71 +163,80 @@ def safe_label(name):
     return "sub-" + cleaned
 
 
-# Matches a CBR folder name: the subject digits, then an OPTIONAL visit number
-# after a '.', '-', '_' or space.  e.g. 'CBR-003-2', 'CBR-003.3', 'CBR-052'.
-SUBJECT_RE = re.compile(r"CBR[-_ ]?(\d+)(?:[.\-_ ](\d+))?", re.IGNORECASE)
+# Optional explicit overrides for non-CBR projects: a CSV mapping a raw folder
+# name to a chosen subject/session, for full control when a project's naming is
+# unusual. Missing file -> no overrides (the patterns below decide).
+SUBJECTS_MAP_PATH = str(_HERE / "subjects_map.csv")
+
+# The project's own CBR convention, kept FIRST so existing labels are unchanged:
+# subject digits, then an OPTIONAL visit number after '.', '-', '_' or space.
+# e.g. 'CBR-003-2', 'CBR-003.3', 'CBR-052'.
+CBR_RE = re.compile(r"CBR[-_ ]?(\d+)(?:[.\-_ ](\d+))?", re.IGNORECASE)
+
+# Generic fallback: a folder ending in '.N' is treated as visit N (a dot suffix
+# is a strong, cross-project visit signal); anything else becomes ses-1. We do
+# NOT split on '-'/'_' generically, since those are usually part of an ID
+# (e.g. 'STUDY2-07'); use subjects_map.csv for precise control of such cases.
+_GENERIC_VISIT_RE = re.compile(r"^(.*\S)\.(\d+)\s*$")
 
 
-def parse_subject_session(folder_name):
+def load_subjects_map(path=SUBJECTS_MAP_PATH):
+    """folder name -> (subject_label, session_label) explicit overrides."""
+    out = {}
+    if not os.path.isfile(path):
+        return out
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            lines = [ln for ln in f
+                     if ln.strip() and not ln.lstrip().startswith("#")]
+        for row in csv.DictReader(lines):
+            row = {(k or "").strip().lower(): (v or "").strip()
+                   for k, v in row.items()}
+            folder = row.get("folder", "")
+            sub = row.get("subject", "")
+            ses = row.get("session", "") or "ses-1"
+            if not folder or not sub:
+                continue
+            if not sub.startswith("sub-"):
+                sub = "sub-" + "".join(c for c in sub if c.isalnum())
+            if not ses.startswith("ses-"):
+                ses = "ses-" + "".join(c for c in ses if c.isalnum())
+            out[folder] = (sub, ses)
+    except Exception:
+        return {}
+    return out
+
+
+def parse_subject_session(folder_name, subjects_map=None):
     """
     Turn a raw subject-folder name into a (subject_label, session_label) pair.
 
-    The CBR folders encode a subject and, optionally, a visit number. The
-    project's visit scheme is:
-        'CBR-XXX'    (no suffix) -> ses-1 : baseline
-        'CBR-XXX.2'              -> ses-2 : 6-month follow-up
-        'CBR-XXX.3'              -> ses-3 : 12-month follow-up
-    so the suffix number IS the session index, and an unsuffixed baseline folder
-    maps to ses-1. Examples:
-        'CBR-003.3' -> ('sub-CBR003', 'ses-3')   # subject 003, 12-month visit
-        'CBR-003-2' -> ('sub-CBR003', 'ses-2')   # SAME subject, 6-month visit
-        'CBR-052'   -> ('sub-CBR052', 'ses-1')   # baseline only
+    Decision order, so existing CBR labels never change AND a brand-new project's
+    folders still get a valid BIDS label instead of being dropped:
+      1. subjects_map.csv explicit override (if the folder is listed).
+      2. CBR convention (CBR_RE): 'CBR-003.3' -> ('sub-CBR003','ses-3'),
+         'CBR-052' -> ('sub-CBR052','ses-1'). The suffix number IS the visit
+         index (kept, not renumbered, so a 6+12-month-only subject reads
+         ses-2/ses-3 correctly), and we use the index (not the date) to stay
+         de-identified (CLAUDE.md rule 3).
+      3. Generic fallback: a trailing '.N' -> visit N; otherwise the whole
+         (alnum-cleaned) name -> 'sub-<name>', ses-1.
 
-    Grouping by subject means repeat visits of one person nest under a single
-    sub-XXX folder (the BIDS longitudinal layout) instead of becoming separate
-    "subjects". We verified via StudyInstanceUID + StudyDate that the .2/.3
-    suffixes really are different scan dates, i.e. genuine timepoints.
-
-    We deliberately use the visit INDEX (not the scan date) as the session
-    label, to keep the output de-identified (CLAUDE.md rule 3 - no dates), and
-    we keep the index from the folder name rather than renumbering sequentially,
-    so e.g. a subject with only the 6- and 12-month discs correctly reads as
-    ses-2/ses-3 (baseline absent) instead of being mislabeled ses-1/ses-2.
-    If the name doesn't match, we fall back to the old flat label so nothing
-    is ever silently dropped.
+    Examples (non-CBR):
+        'STUDY2-07'  -> ('sub-STUDY207', 'ses-1')
+        'SUBJ01.2'   -> ('sub-SUBJ01',   'ses-2')
     """
-    match = SUBJECT_RE.search(folder_name or "")
-    if not match:
-        return safe_label(folder_name), "ses-1"
-    subject_num = match.group(1)
-    visit = match.group(2)
-    subject_label = "sub-CBR" + subject_num
-    session_label = "ses-" + (visit if visit else "1")
-    return subject_label, session_label
-
-
-def categorize_series(description):
-    """
-    Decide which BIDS-like folder a series belongs in, using simple keyword
-    matching on the (lowercased) series description.
-
-    Returns one of: 'anat', 'dwi', 'fmap', 'perf', 'swi', 'misc'.
-    We check the specific modalities (fmap/perf/swi/dwi) BEFORE anat, because a
-    perfusion/diffusion/fieldmap/SWI description should not be misread as
-    anatomical.
-    """
-    text = (description or "").lower()
-    if any(k in text for k in FMAP_KEYWORDS):
-        return "fmap"
-    if any(k in text for k in PERF_KEYWORDS):
-        return "perf"
-    if any(k in text for k in SWI_KEYWORDS):
-        return "swi"
-    if any(k in text for k in DWI_KEYWORDS):
-        return "dwi"
-    if any(k in text for k in ANAT_KEYWORDS):
-        return "anat"
-    return "misc"
+    name = folder_name or ""
+    if subjects_map and name in subjects_map:
+        return subjects_map[name]
+    match = CBR_RE.search(name)
+    if match:
+        visit = match.group(2)
+        return "sub-CBR" + match.group(1), "ses-" + (visit if visit else "1")
+    gv = _GENERIC_VISIT_RE.match(name)
+    if gv:
+        return safe_label(gv.group(1)), "ses-" + gv.group(2)
+    return safe_label(name), "ses-1"
 
 
 def scan_subject_series(subject_dir, log_lines):
@@ -248,16 +249,21 @@ def scan_subject_series(subject_dir, log_lines):
               "number": SeriesNumber,
               "description": SeriesDescription,
               "modality": Modality,
+              "image_type": ImageType joined to a string (signal for BOLD/ASL),
+              "sequence": SequenceName (extra hint for the unknown-series report),
               "sample_dataset": <one pydicom dataset, used later for validation>,
               "file_count": how many DICOM files were in this series
           }, ... }
 
     We only read the few tags we need (specific_tags) so this stays fast even
-    with thousands of files.
+    with thousands of files. ImageType / SequenceName are read so the shared
+    classifier can spot functional (BOLD) runs even when the name is unfamiliar,
+    and so the unknown-series report carries useful hints.
     """
-    # Tags we actually need: identity of the series + a couple for validation.
+    # Tags we actually need: identity of the series + validation + classification.
     wanted_tags = ["SeriesInstanceUID", "SeriesNumber", "SeriesDescription",
-                   "Modality", "RepetitionTime", "EchoTime", "ProtocolName"]
+                   "Modality", "RepetitionTime", "EchoTime", "ProtocolName",
+                   "ImageType", "SequenceName"]
 
     series = {}
     n_dicom = 0
@@ -288,10 +294,15 @@ def scan_subject_series(subject_dir, log_lines):
 
             n_dicom += 1
             if uid not in series:
+                image_type = getattr(ds, "ImageType", "") or ""
+                if isinstance(image_type, (list, tuple)):
+                    image_type = "/".join(str(x) for x in image_type)
                 series[uid] = {
                     "number": getattr(ds, "SeriesNumber", ""),
                     "description": getattr(ds, "SeriesDescription", "") or "",
                     "modality": getattr(ds, "Modality", "") or "",
+                    "image_type": str(image_type),
+                    "sequence": str(getattr(ds, "SequenceName", "") or ""),
                     "sample_dataset": ds,   # keep one example for validation
                     "file_count": 0,
                 }
@@ -402,9 +413,27 @@ def main():
     log(f" output: {output_dir}", log_lines)
     log("=" * 70, log_lines)
 
-    # --- check inputs and tools before doing anything ----------------------
+    # --- check the input folder before doing anything ----------------------
+    # If the folder is missing entirely, create it (with a README) and stop so
+    # the user can drop their exam folders in -- no misdirected run from the
+    # get-go. If it exists, diagnose it and STOP on the common mistakes
+    # (pointing inside a single exam, or an empty folder) before converting.
     if not os.path.isdir(input_dir):
-        log(f"ERROR: input folder does not exist: {input_dir}", log_lines)
+        log(f"Input folder did not exist; creating it now:", log_lines)
+        created_path, _ = setup_workspace.ensure_input_folder(
+            root=os.path.dirname(os.path.abspath(input_dir)) or ".",
+            input_name=os.path.basename(os.path.normpath(input_dir)))
+        log(f"  {created_path}", log_lines)
+        log("  Drop ONE FOLDER PER EXAM inside it, then run this again.", log_lines)
+        log("  (See the README placed in that folder.)", log_lines)
+        sys.exit(1)
+
+    state = setup_workspace.diagnose_data_folder(input_dir)
+    if state != "ok":
+        log("", log_lines)
+        log("Conversion stopped: the input folder does not look right (see above).",
+            log_lines)
+        log("Fix where the exam folders are, then run again.", log_lines)
         sys.exit(1)
 
     dcm2niix_path = find_dcm2niix()
@@ -419,9 +448,17 @@ def main():
     work_root = os.path.join(output_dir, ".work")
     os.makedirs(work_root, exist_ok=True)
 
-    # These lists collect rows for the two CSV reports.
-    provenance_rows = []   # subject, series_uid, series_number, description, modality, category, nifti, json
+    # Load the classification rules once: the operator-editable series_map.csv
+    # (teaches new projects) and any subjects_map.csv (explicit folder->labels).
+    series_map = sc.load_series_map()
+    subjects_map = load_subjects_map()
+    log(f" series_map rules: {len(series_map)}   "
+        f"subjects_map overrides: {len(subjects_map)}", log_lines)
+
+    # These lists collect rows for the reports.
+    provenance_rows = []   # one row per produced NIfTI (now incl. BIDS hints)
     validation_rows = []   # subject, series_uid, field, dicom_value, json_value, status
+    unknown_rows = []      # series no rule could classify (the "new strangers")
 
     # --- find subject folders ---------------------------------------------
     # A "subject" is any immediate sub-folder of INPUT_DIR that actually
@@ -445,7 +482,8 @@ def main():
         # One folder = one subject + one visit/session. Repeat visits of the
         # same person (e.g. CBR-003-2 and CBR-003.3) share the subject_label and
         # only differ in session_label, so they nest under one sub-XXX folder.
-        subject_label, session_label = parse_subject_session(subject_name)
+        subject_label, session_label = parse_subject_session(subject_name,
+                                                              subjects_map)
         file_prefix = f"{subject_label}_{session_label}"
         log("", log_lines)
         log(f"SUBJECT: {subject_name}  ->  {subject_label}/{session_label}", log_lines)
@@ -490,17 +528,46 @@ def main():
                 uid = info["uid"]
                 number = info["number"]
                 modality = info["modality"]
+                image_type = info.get("image_type", "")
+                sequence = info.get("sequence", "")
+                file_count = info.get("file_count", "")
                 sample_ds = info["sample_dataset"]
             else:
                 description = (sidecar or {}).get("SeriesDescription", "")
                 uid = "UNKNOWN"
                 number = (sidecar or {}).get("SeriesNumber", "")
                 modality = (sidecar or {}).get("Modality", "")
+                it = (sidecar or {}).get("ImageType", "")
+                image_type = "/".join(it) if isinstance(it, list) else str(it)
+                sequence = (sidecar or {}).get("SequenceName", "")
+                file_count = ""
                 sample_ds = None
                 log(f"    [warn] could not match {nifti_path.name} to a series UID.",
                     log_lines)
 
-            category = categorize_series(description)
+            # Classify with the shared rules (series_map.csv first, then built-in
+            # keywords, then ImageType for unnamed BOLD). Unknown -> quarantine.
+            cls = sc.classify(description, image_type=image_type,
+                              modality=modality, sequence=sequence,
+                              series_map=series_map)
+            category = cls.datatype
+            entities_text = ";".join(f"{k}={v}" for k, v in cls.entities.items())
+
+            if category == "unknown":
+                log(f"    [unknown] {nifti_path.name}: no rule matched "
+                    f"(series {number}: {description!r}) -> sourcedata/unknown/",
+                    log_lines)
+                unknown_rows.append({
+                    "subject": subject_label,
+                    "session": session_label,
+                    "series_number": number,
+                    "series_description": description,
+                    "modality": modality,
+                    "image_type": image_type,
+                    "sequence": sequence,
+                    "dicom_file_count": file_count,
+                    "suggestion": sc.suggest_for_unknown(description, image_type),
+                })
 
             # Make sub-XXX/ses-Y/<category>/ and move BOTH the .nii.gz and json.
             dest_dir = os.path.join(output_dir, subject_label, session_label,
@@ -516,7 +583,9 @@ def main():
             log(f"    {nifti_path.name}  ->  {category}/  (series {number}: {description})",
                 log_lines)
 
-            # --- provenance: one row linking output back to the DICOM series.
+            # --- provenance: one row linking output back to the DICOM series,
+            #     now carrying the BIDS classification so make_bids.py /
+            #     make_derivatives.py can name files without re-deriving anything.
             provenance_rows.append({
                 "subject": subject_label,
                 "session": session_label,
@@ -525,6 +594,11 @@ def main():
                 "series_description": description,
                 "modality": modality,
                 "category": category,
+                "bids_suffix": cls.suffix,
+                "bids_entities": entities_text,
+                "derived": "yes" if cls.derived else "",
+                "classifier_source": cls.source,
+                "image_type": image_type,
                 "output_nifti": os.path.relpath(dest_nifti, output_dir),
                 "output_json": os.path.relpath(dest_json, output_dir) if dest_json else "",
             })
@@ -555,13 +629,14 @@ def main():
                         "status": status,
                     })
 
-    # --- write the two CSV reports ----------------------------------------
+    # --- write the reports ------------------------------------------------
     provenance_csv = os.path.join(output_dir, "provenance.csv")
     with open(provenance_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "subject", "session", "series_uid", "series_number",
             "series_description", "modality", "category",
-            "output_nifti", "output_json"])
+            "bids_suffix", "bids_entities", "derived", "classifier_source",
+            "image_type", "output_nifti", "output_json"])
         writer.writeheader()
         writer.writerows(provenance_rows)
 
@@ -572,6 +647,82 @@ def main():
             "json_value", "status"])
         writer.writeheader()
         writer.writerows(validation_rows)
+
+    # --- reports/: unknown series + a ready-to-edit map + readiness summary -
+    reports_dir = os.path.join(output_dir, "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+
+    # 1) Every series no rule could classify, with the hints needed to decide.
+    unknown_csv = os.path.join(reports_dir, "unknown_series_report.csv")
+    with open(unknown_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "subject", "session", "series_number", "series_description",
+            "modality", "image_type", "sequence", "dicom_file_count",
+            "suggestion"])
+        writer.writeheader()
+        writer.writerows(unknown_rows)
+
+    # 2) Ready-to-edit stub rows for series_map.csv (one per distinct unknown
+    #    description). The operator fills in 'datatype'/'suffix' and pastes the
+    #    rows into series_map.csv -- we do NOT mutate the live map automatically.
+    additions_csv = os.path.join(reports_dir, "series_map_additions.csv")
+    seen_desc = []
+    with open(additions_csv, "w", newline="", encoding="utf-8") as f:
+        f.write("# Fill in 'datatype' (and optionally suffix/entities/derived),\n"
+                "# then paste these rows into series_map.csv and re-run.\n")
+        writer = csv.DictWriter(f, fieldnames=[
+            "match_type", "pattern", "datatype", "suffix", "entities",
+            "derived", "notes"])
+        writer.writeheader()
+        for row in unknown_rows:
+            desc = row["series_description"]
+            if not desc or desc in seen_desc:
+                continue
+            seen_desc.append(desc)
+            writer.writerow({
+                "match_type": "exact",
+                "pattern": desc,
+                "datatype": "",          # <- operator fills this in
+                "suffix": "",
+                "entities": "",
+                "derived": "",
+                "notes": row["suggestion"],
+            })
+
+    # 3) A plain-English readiness summary: what is classified, what needs you.
+    by_category = {}
+    by_source = {}
+    for r in provenance_rows:
+        by_category[r["category"]] = by_category.get(r["category"], 0) + 1
+        by_source[r["classifier_source"]] = by_source.get(r["classifier_source"], 0) + 1
+    readiness_path = os.path.join(reports_dir, "bids_readiness_report.txt")
+    rlines = []
+    rlines.append("BIDS readiness report")
+    rlines.append(f"generated: {datetime.now().isoformat(timespec='seconds')}")
+    rlines.append(f"input: {input_dir}")
+    rlines.append("-" * 60)
+    rlines.append(f"series converted: {len(provenance_rows)} across "
+                  f"{len(subjects)} folder(s)")
+    rlines.append("by datatype:")
+    for cat in sorted(by_category):
+        rlines.append(f"    {cat:<10} {by_category[cat]}")
+    rlines.append("by classifier source:")
+    for src in sorted(by_source):
+        rlines.append(f"    {src:<14} {by_source[src]}")
+    rlines.append("-" * 60)
+    if unknown_rows:
+        rlines.append(f"UNKNOWN series needing your input: {len(unknown_rows)}")
+        rlines.append(f"  -> see {os.path.relpath(unknown_csv, output_dir)}")
+        rlines.append(f"  -> edit {os.path.relpath(additions_csv, output_dir)} "
+                      "and paste into series_map.csv, then re-run.")
+    else:
+        rlines.append("UNKNOWN series: none -- every series was classified.")
+    rlines.append("")
+    rlines.append("Next steps to full BIDS: run deidentify_sidecars.py, then")
+    rlines.append("make_bids.py (raw anat/func) and make_derivatives.py")
+    rlines.append("(scanner-derived maps + ASL/fmap sourcedata scaffolds).")
+    with open(readiness_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(rlines) + "\n")
 
     # --- clean up the temporary work folder -------------------------------
     # Everything useful has been moved out; remove the leftover empty area.
@@ -586,6 +737,9 @@ def main():
     log(f"   provenance      -> {provenance_csv}", log_lines)
     log(f"   validation      -> {validation_csv}  ({n_mismatch} mismatch flag(s))",
         log_lines)
+    if unknown_rows:
+        log(f"   UNKNOWN series  -> {len(unknown_rows)} flagged; see "
+            f"{os.path.relpath(readiness_path, output_dir)}", log_lines)
     log("=" * 70, log_lines)
 
     # Write the full text log so problems can be reviewed later.

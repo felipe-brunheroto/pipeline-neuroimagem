@@ -8,8 +8,8 @@ There are two machines:
 
 | Machine | Role | Scripts used |
 |---|---|---|
-| **Conversion Mac** (Felipe) | DICOM → NIfTI → de-identify → BIDS | `dicom_to_bids.py`, `deidentify_sidecars.py`, `make_bids.py` |
-| **Recon Mac** (M4 / 64 GB, FreeSurfer 8) | defacing + structural analysis | `deface_anat.py`, `run_recon_long.py` |
+| **Conversion Mac** (Felipe) | DICOM → NIfTI → de-identify → BIDS + derivatives | `dicom_to_bids.py`, `deidentify_sidecars.py`, `make_bids.py`, `make_derivatives.py` |
+| **Recon Mac** (M4 / 64 GB, FreeSurfer 8) | defacing + structural analysis | `deface_anat.py`, `run_recon_long.py`, `extract_fs_stats.py` |
 
 The full PDF (`CBR_NEUROCOVID_pipeline_overview.pdf`) is the 2-page summary to
 read first. `README.md` has the complete reference.
@@ -31,29 +31,32 @@ source $FREESURFER_HOME/SetUpFreeSurfer.sh
 python3 check_environment.py        # should say GOOD TO GO
 ```
 
-**1. Preview the recon plan** (needs no FreeSurfer — safe to run anywhere)
+**1. Build the BIDS tree** (after `dicom_to_bids.py` + `deidentify_sidecars.py`)
 ```bash
-python3 run_recon_long.py --dry-run
+python3 make_bids.py            # raw anat (+func) -> bids/
+python3 make_derivatives.py     # scanner-derived maps + ASL/fmap sourcedata
+python3 run_recon_long.py --dry-run   # preview the recon plan (no FreeSurfer)
 ```
 
-**2. Deface the anatomicals** (writes `BIDS_output/derivatives/defaced/`, keeps originals)
+**2. Deface the anatomicals** (reads `bids/`, writes `bids/derivatives/defaced/`, keeps originals)
 ```bash
 python3 deface_anat.py
 ```
 
 **3. Run the FreeSurfer longitudinal stream** (cross → within-subject base → long)
 ```bash
-python3 run_recon_long.py \
-    --input BIDS_output/derivatives/defaced \
-    --subjects-dir ~/fs_subjects --jobs 4 --threads 4
+python3 run_recon_long.py --input bids/derivatives/defaced \
+    --jobs 4 --threads 4
 ```
+Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative).
 Budget ~8 GB RAM and a few cores per job; `--jobs 4` is comfortable on 64 GB.
-Completed runs are skipped automatically; per-run logs land in `~/fs_subjects/logs/`.
+Completed runs are skipped automatically; per-run logs land in
+`bids/derivatives/freesurfer/logs/`.
 
 **4. QC, then extract metrics**
 ```bash
 freeview ...                          # visual surface check; note the Euler number
-asegstats2table  / aparcstats2table   # -> tidy per-region tables for stats
+python3 extract_fs_stats.py           # -> tidy tables in bids/derivatives/freesurfer/stats/
 ```
 
 ---

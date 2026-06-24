@@ -1,0 +1,37 @@
+match_type,pattern,datatype,suffix,entities,derived,notes
+# series_map.csv -- operator-editable rules that teach the pipeline how to sort
+# and BIDS-name each MRI series. Rows here WIN over the built-in keyword rules in
+# series_classifier.py, so a NEW project (e.g. a future BOLD study) is supported
+# by adding rows below -- no code changes needed.
+#
+# Columns:
+#   match_type : substring (default) | regex | exact   (matched on the lowercased SeriesDescription)
+#   pattern    : the text or regex to match
+#   datatype   : anat | func | dwi | fmap | perf | swi | misc | unknown
+#   suffix     : BIDS suffix (T1w, T2w, FLAIR, bold, dwi, asl, swi, ...) -- optional
+#   entities   : k=v;k=v  (e.g. task=rest  or  desc=ADC) -- optional
+#   derived    : yes if this is a scanner-DERIVED image (goes under derivatives/) -- optional
+#   notes      : free text for humans (ignored by code)
+#
+# Lines beginning with '#' and blank lines are ignored. Rows with an empty
+# pattern or datatype are ignored (that is how auto-appended stub rows stay inert
+# until you fill them in).
+#
+# ---- CBR / NEUROCOVID defaults (mirror the built-in rules; safe to edit) -----
+substring,t1_mprage,anat,T1w,,,Siemens MPRAGE structural
+substring,t2_space_da-fl3,anat,FLAIR,,,3D FLAIR (T2-SPACE variant) -- check before t2_space
+substring,t2_space,anat,T2w,,,3D T2-SPACE structural
+substring,axial difusao_adc,dwi,dwi,desc=ADC,yes,scanner-derived ADC map (no bvec)
+substring,axial difusao_tracew,dwi,dwi,desc=traceweighted,yes,scanner-derived trace-weighted (no bvec)
+substring,gre_field_mapping,fmap,phasediff,,,phase-only here -- magnitude not acquired (see sourcedata/fmap)
+regex,asl_3d_\d+,perf,asl,,,PASL multi-TI (TI/PLD is in the name; see sourcedata/asl)
+exact,perfusion_weighted,perf,,desc=perfusionWeighted,yes,scanner-derived perfusion map
+substring,swi_images,swi,swi,desc=swi,yes,SWI combined image
+substring,mag_images,swi,swi,desc=mag,yes,SWI magnitude
+substring,pha_images,swi,swi,desc=phase,yes,SWI phase
+substring,mip_images,swi,swi,desc=minIP,yes,SWI minimum-intensity projection
+substring,aahead_scout,misc,,,,localizer -- not BIDS data
+#
+# ---- Add rows for NEW projects below (example BOLD rows, commented out) -------
+# substring,rest,func,bold,task=rest,,resting-state BOLD
+# regex,task[-_]?(\w+),func,bold,,,task BOLD -- set TaskName/events after import

@@ -19,10 +19,13 @@ WHAT THIS SCRIPT DOES / DOES NOT DO
   * Processes ONLY files inside each   sub-XXX/ses-Y/anat/   folder.
     It never touches dwi / perf / swi / fmap / misc (defacing those gives no
     benefit and can clip brain on low-resolution images).
-  * NEVER modifies or deletes the originals. The original anat NIfTI/JSON stay
-    exactly where they are. Defaced copies are written to a SEPARATE tree:
-        BIDS_output/derivatives/defaced/sub-XXX/ses-Y/anat/
-    so the raw anat/ folder remains pristine and fully retrievable.
+  * Reads the curated raw anatomicals from the BIDS tree (./bids by default), so
+    it runs AFTER make_bids.py and produces correctly-named BIDS derivatives.
+  * NEVER modifies or deletes the originals. Defaced copies are written to a
+    proper BIDS derivatives dataset, with `desc-defaced` in the file name:
+        bids/derivatives/defaced/sub-XXX/ses-Y/anat/
+              sub-XXX_ses-Y_acq-..._desc-defaced_T1w.nii.gz
+    plus a derivatives dataset_description.json. The raw anat/ stays pristine.
   * Copies the (already de-identified) JSON sidecar next to each defaced image
     and adds a small provenance note ("DefacedWith").
   * Writes a log:  derivatives/defaced/deface_log.txt
@@ -30,8 +33,8 @@ WHAT THIS SCRIPT DOES / DOES NOT DO
 
 HOW TO RUN
 ----------
-    python deface_anat.py                 # default BIDS_output next to this file
-    python deface_anat.py /path/to/BIDS_output
+    python deface_anat.py                 # default ./bids next to this file
+    python deface_anat.py /path/to/bids
     python deface_anat.py --dry-run       # list what WOULD be defaced, run nothing
     python deface_anat.py --force         # re-deface even if output exists
 
@@ -51,6 +54,31 @@ import argparse
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+# BIDS version declared in the derivatives dataset_description.json.
+BIDS_VERSION = "1.9.0"
+
+
+def insert_desc_defaced(filename):
+    """
+    Turn a raw BIDS anatomical file name into its defaced-derivative name by
+    inserting the `desc-defaced` entity right before the suffix:
+        sub-X_ses-Y_acq-Z[_run-NN]_T1w.nii.gz
+        -> sub-X_ses-Y_acq-Z[_run-NN]_desc-defaced_T1w.nii.gz
+    Handles the .nii.gz and .json extensions. If a desc- already exists, or the
+    name is not a standard 'entities_suffix' shape, we fall back to appending so
+    nothing is lost.
+    """
+    for ext in (".nii.gz", ".json"):
+        if filename.endswith(ext):
+            stem = filename[: -len(ext)]
+            if "_desc-" in stem:
+                return filename            # already has a desc-; leave as is
+            if "_" in stem:
+                entities, suffix = stem.rsplit("_", 1)
+                return f"{entities}_desc-defaced_{suffix}{ext}"
+            return f"{stem}_desc-defaced{ext}"
+    return filename
 
 
 # Only these anat suffixes/keywords are defaced. Everything in anat/ is
@@ -109,10 +137,14 @@ def deface_one(mideface_path, src_nifti, output_dir, log_lines, force):
 
     Returns one of: "defaced", "skipped", "failed".
     """
-    # Build the mirror path: BIDS_output/derivatives/defaced/<same relative path>.
+    # Build the derivative path: <bids>/derivatives/defaced/<same sub/ses/anat
+    # folders>/<name with desc-defaced inserted before the suffix>.
     rel = os.path.relpath(str(src_nifti), output_dir)
-    dest_nifti = os.path.join(output_dir, "derivatives", "defaced", rel)
-    os.makedirs(os.path.dirname(dest_nifti), exist_ok=True)
+    rel_dir = os.path.dirname(rel)
+    defaced_name = insert_desc_defaced(src_nifti.name)
+    dest_dir = os.path.join(output_dir, "derivatives", "defaced", rel_dir)
+    dest_nifti = os.path.join(dest_dir, defaced_name)
+    os.makedirs(dest_dir, exist_ok=True)
 
     if os.path.exists(dest_nifti) and not force:
         log(f"    [skip] already defaced: {rel}", log_lines)
@@ -153,12 +185,34 @@ def deface_one(mideface_path, src_nifti, output_dir, log_lines, force):
     return "defaced"
 
 
+def write_defaced_dataset_description(output_dir):
+    """Write the BIDS derivatives dataset_description.json for the defaced tree."""
+    deriv_root = os.path.join(output_dir, "derivatives", "defaced")
+    os.makedirs(deriv_root, exist_ok=True)
+    path = os.path.join(deriv_root, "dataset_description.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({
+            "Name": "CBR / NEUROCOVID defaced anatomicals",
+            "BIDSVersion": BIDS_VERSION,
+            "DatasetType": "derivative",
+            "GeneratedBy": [{
+                "Name": "mideface",
+                "Description": "Facial features masked with FreeSurfer mideface; "
+                               "brain voxels untouched.",
+            }],
+            "SourceDatasets": [{"Description": "Raw anatomicals in this BIDS "
+                                               "dataset (../../)."}],
+        }, f, indent="\t", ensure_ascii=False)
+        f.write("\n")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Deface anatomical scans (T1/T2/FLAIR) with FreeSurfer mideface.")
     parser.add_argument("output_dir", nargs="?",
-                        default=str(Path(__file__).resolve().parent / "BIDS_output"),
-                        help="BIDS_output folder (default: next to this script).")
+                        default=str(Path(__file__).resolve().parent / "bids"),
+                        help="BIDS dataset root to read raw anat from and write "
+                             "derivatives/defaced/ into (default: ./bids).")
     parser.add_argument("--dry-run", action="store_true",
                         help="List what would be defaced; run nothing.")
     parser.add_argument("--force", action="store_true",
@@ -167,7 +221,8 @@ def main():
 
     output_dir = args.output_dir
     if not os.path.isdir(output_dir):
-        print(f"ERROR: output folder does not exist: {output_dir}")
+        print(f"ERROR: BIDS folder does not exist: {output_dir}")
+        print("  Run make_bids.py first (it builds the raw anat under bids/).")
         sys.exit(1)
 
     log_lines = []
@@ -208,6 +263,9 @@ def main():
         sys.exit(1)
     log(f" using mideface: {mideface_path}", log_lines)
     log("", log_lines)
+
+    # Declare the defaced tree as a proper BIDS derivatives dataset.
+    write_defaced_dataset_description(output_dir)
 
     counts = {"defaced": 0, "skipped": 0, "failed": 0}
     for nifti in anat_niftis:

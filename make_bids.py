@@ -98,23 +98,84 @@ def session_meta(session_label):
     return visit, months
 
 
-def load_anat_rows(output_dir):
-    """Read provenance.csv and return only the anatomical rows we can map."""
+def _parse_entities(text):
+    """Parse a provenance 'bids_entities' cell ('k=v;k=v') into a dict."""
+    out = {}
+    for piece in (text or "").split(";"):
+        piece = piece.strip()
+        if "=" in piece:
+            k, _, v = piece.partition("=")
+            if k.strip():
+                out[k.strip()] = v.strip()
+    return out
+
+
+def load_provenance(output_dir):
+    """Read provenance.csv (the source of truth) into a list of row dicts."""
     prov = os.path.join(output_dir, "provenance.csv")
     if not os.path.isfile(prov):
         print(f"ERROR: {prov} not found. Run dicom_to_bids.py first.")
         sys.exit(1)
-    rows = []
     with open(prov, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            if row.get("category") != "anat":
-                continue
-            suffix = anat_suffix(row.get("series_description"))
-            if suffix is None:
-                continue
-            row["_suffix"] = suffix
-            rows.append(row)
-    return rows
+        return list(csv.DictReader(f))
+
+
+def load_anat_rows(output_dir, rows=None):
+    """Return only the anatomical rows we can map (prefer the suffix already
+    decided at conversion time; fall back to anat_suffix for older provenance)."""
+    rows = rows if rows is not None else load_provenance(output_dir)
+    out = []
+    for row in rows:
+        if row.get("category") != "anat":
+            continue
+        suffix = row.get("bids_suffix") or anat_suffix(row.get("series_description"))
+        if not suffix:
+            continue
+        row["_suffix"] = suffix
+        out.append(row)
+    return out
+
+
+def safe_task_label(text):
+    """BIDS task entity: alphanumeric only. '' -> '' (caller handles placeholder)."""
+    return "".join(ch for ch in (text or "") if ch.isalnum())
+
+
+def read_json_field(path, field, default=None):
+    """Read one field from a JSON sidecar; missing file/field -> default."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f).get(field, default)
+    except Exception:
+        return default
+
+
+def load_func_rows(output_dir, rows=None):
+    """
+    Return the FUNCTIONAL (BOLD) rows. We split them into:
+      * 'ready'      : a task is known (e.g. resting-state) AND RepetitionTime is
+                       present -> can be emitted as valid BIDS raw func.
+      * 'incomplete' : task unknown (or no TR) -> held under sourcedata/func/ with
+                       a clear placeholder until the researcher supplies TaskName,
+                       so bids/ raw stays validator-clean.
+    Derived func images (if any) are left for make_derivatives.py.
+    """
+    rows = rows if rows is not None else load_provenance(output_dir)
+    ready, incomplete = [], []
+    for row in rows:
+        if row.get("category") != "func" or row.get("derived") == "yes":
+            continue
+        ent = _parse_entities(row.get("bids_entities"))
+        task = safe_task_label(ent.get("task", ""))
+        src_json = os.path.join(output_dir, row.get("output_json") or "")
+        tr = read_json_field(src_json, "RepetitionTime")
+        row["_task"] = task
+        row["_tr"] = tr
+        if task and tr:
+            ready.append(row)
+        else:
+            incomplete.append(row)
+    return ready, incomplete
 
 
 def copy_sidecar(src_json, dest_json):
@@ -140,9 +201,12 @@ def write_text(path, text):
 
 
 def build_dataset(output_dir, bids_dir):
-    rows = load_anat_rows(output_dir)
-    if not rows:
-        print("No anatomical rows found in provenance.csv; nothing to do.")
+    provenance = load_provenance(output_dir)
+    rows = load_anat_rows(output_dir, provenance)
+    func_ready, func_incomplete = load_func_rows(output_dir, provenance)
+    if not rows and not func_ready and not func_incomplete:
+        print("No anatomical or functional rows found in provenance.csv; "
+              "nothing to do.")
         return
 
     # Fresh, deterministic output: clear any previous bids/ imaging so a re-run
@@ -184,6 +248,90 @@ def build_dataset(output_dir, bids_dir):
         n_copied += 1
         print(f"  {subject}/{session}/anat/{stem}.nii.gz")
 
+    # ----- functional (BOLD) -------------------------------------------------
+    # Ready func (task known + RepetitionTime present) -> valid BIDS raw func.
+    # Incomplete func -> sourcedata/func/ with a placeholder, so bids/ raw stays
+    # validator-clean until the researcher confirms TaskName/events.
+    n_func = 0
+    func_tasks = set()
+    seen_func = {}
+    for row in sorted(func_ready, key=lambda r: (r["subject"], r["session"],
+                                                 r["_task"], r["series_number"])):
+        subject, session = row["subject"], row["session"]
+        task, tr = row["_task"], row["_tr"]
+        acq = acq_label(row["series_description"])
+        key = (subject, session, task, acq)
+        seen_func[key] = seen_func.get(key, 0) + 1
+        run_entity = f"_run-{seen_func[key]:02d}" if seen_func[key] > 1 else ""
+        func_dir = os.path.join(bids_dir, subject, session, "func")
+        os.makedirs(func_dir, exist_ok=True)
+        stem = f"{subject}_{session}_task-{task}_acq-{acq}{run_entity}_bold"
+        src_nifti = os.path.join(output_dir, row["output_nifti"])
+        src_json = os.path.join(output_dir, row.get("output_json") or "")
+        if not os.path.isfile(src_nifti):
+            print(f"  [warn] missing func NIfTI, skipping: {row['output_nifti']}")
+            continue
+        shutil.copy2(src_nifti, os.path.join(func_dir, stem + ".nii.gz"))
+        # Sidecar MUST carry TaskName (required by BIDS for bold).
+        if row.get("output_json") and os.path.isfile(src_json):
+            with open(src_json, "r", encoding="utf-8") as f:
+                sidecar = json.load(f)
+        else:
+            sidecar = {"RepetitionTime": tr}
+        for field in IDENTIFIER_FIELDS:
+            sidecar.pop(field, None)
+        sidecar["TaskName"] = task
+        write_json(os.path.join(func_dir, stem + ".json"), sidecar)
+        subjects.setdefault(subject, set()).add(session)
+        func_tasks.add(task)
+        n_func += 1
+        print(f"  {subject}/{session}/func/{stem}.nii.gz")
+
+    # A top-level task json + events stub helps downstream tools; one per task.
+    for task in sorted(func_tasks):
+        events_stub = os.path.join(bids_dir, f"task-{task}_events.json")
+        if not os.path.isfile(events_stub):
+            write_json(events_stub, {
+                "onset": {"Description": "Event onset (s).", "Units": "s"},
+                "duration": {"Description": "Event duration (s).", "Units": "s"},
+                "trial_type": {"Description": "Condition label."},
+            })
+
+    # Incomplete func: park under sourcedata/func/ with a clear to-do, never in
+    # bids/ raw (where it would fail validation).
+    if func_incomplete:
+        sd_dir = os.path.join(bids_dir, "sourcedata", "func")
+        os.makedirs(sd_dir, exist_ok=True)
+        for row in func_incomplete:
+            subject, session = row["subject"], row["session"]
+            acq = acq_label(row["series_description"])
+            dest = os.path.join(sd_dir, subject, session, "func")
+            os.makedirs(dest, exist_ok=True)
+            stem = f"{subject}_{session}_task-FILLME_acq-{acq}_bold"
+            src_nifti = os.path.join(output_dir, row["output_nifti"])
+            if os.path.isfile(src_nifti):
+                shutil.copy2(src_nifti, os.path.join(dest, stem + ".nii.gz"))
+            src_json = os.path.join(output_dir, row.get("output_json") or "")
+            sidecar = {}
+            if row.get("output_json") and os.path.isfile(src_json):
+                with open(src_json, "r", encoding="utf-8") as f:
+                    sidecar = json.load(f)
+            for field in IDENTIFIER_FIELDS:
+                sidecar.pop(field, None)
+            sidecar["TaskName"] = "REQUIRED_FILL_ME"
+            write_json(os.path.join(dest, stem + ".json"), sidecar)
+        write_text(os.path.join(sd_dir, "README"),
+            "Functional (BOLD) series held here pending researcher input.\n"
+            "================================================================\n\n"
+            "These runs were detected as BOLD but could not be emitted as valid\n"
+            "BIDS raw func because the TASK is unknown (and/or RepetitionTime is\n"
+            "missing). To promote them into bids/<sub>/<ses>/func/:\n"
+            "  1. Decide the task label (e.g. 'rest', or your task name).\n"
+            "  2. Set 'TaskName' in each .json (replace REQUIRED_FILL_ME).\n"
+            "  3. Add a task-<label> rule to series_map.csv and re-run, or rename\n"
+            "     the files to sub-XX_ses-YY_task-<label>[_run-NN]_bold.\n"
+            "  4. For task designs, add a matching _events.tsv per run.\n")
+
     # ----- dataset-level metadata (the FAIR skeleton) ------------------------
     write_json(os.path.join(bids_dir, "dataset_description.json"), {
         "Name": "CBR / NEUROCOVID structural MRI",
@@ -205,23 +353,27 @@ def build_dataset(output_dir, bids_dir):
         "Basic Confidentiality Profile). Subject codes are study codes only.\n\n"
         "SCOPE\n"
         "-----\n"
-        "Currently curated: ANATOMICAL scans only (T1w / T2w / FLAIR). The\n"
-        "scanner protocol name is preserved in the `acq-` entity.\n\n"
+        "Curated into raw BIDS: ANATOMICAL scans (T1w / T2w / FLAIR) and, when\n"
+        "present, FUNCTIONAL (BOLD) runs with a known task. The scanner protocol\n"
+        "name is preserved in the `acq-` entity.\n\n"
         "Sessions follow the study visit scheme:\n"
         "  ses-1 = baseline (0 months)\n"
         "  ses-2 = 6-month follow-up\n"
         "  ses-3 = 12-month follow-up\n"
         "(Subjects present only at later visits correctly start at ses-2/ses-3.)\n\n"
-        "NOT YET CURATED: diffusion (incl. derived TRACEW/ADC), fieldmap,\n"
-        "ASL/perfusion and SWI series remain in the project's BIDS_output/ tree\n"
-        "(treated as sourcedata) pending BIDS curation - ASL needs aslcontext.tsv,\n"
-        "fieldmaps need IntendedFor, etc.\n\n"
+        "NOT in raw BIDS: scanner-derived maps (TRACEW/ADC, SWI family,\n"
+        "Perfusion_Weighted) are curated under derivatives/scanner-derived/ by\n"
+        "make_derivatives.py. Raw ASL and the phase-only fieldmap (magnitude not\n"
+        "acquired) live under sourcedata/ with READMEs, pending parameters that\n"
+        "are not in the DICOMs. BOLD runs with an unknown task are held under\n"
+        "sourcedata/func/ until TaskName is supplied.\n\n"
         "Defaced anatomicals (FreeSurfer mideface) live under\n"
-        "BIDS_output/derivatives/defaced/ and can be substituted before sharing.\n")
+        "derivatives/defaced/ and can be substituted before sharing.\n")
 
     write_text(os.path.join(bids_dir, "CHANGES"),
         f"1.0.0 {datetime.now().strftime('%Y-%m-%d')}\n"
-        "  - Initial BIDS release: anatomical scans (T1w/T2w/FLAIR), all visits.\n")
+        "  - Initial BIDS release: anatomical scans (T1w/T2w/FLAIR), all visits.\n"
+        "  - Functional (BOLD) curated when a task is known.\n")
 
     # Nothing non-conforming is written into bids/, so .bidsignore is empty but
     # present (a stub for future additions like logs).
@@ -265,9 +417,12 @@ def build_dataset(output_dir, bids_dir):
 
     print("")
     print("=" * 70)
-    print(f" DONE. Wrote {n_copied} anatomical scan(s) for "
+    print(f" DONE. Wrote {n_copied} anatomical + {n_func} functional scan(s) for "
           f"{len(participant_ids)} subject(s) to:")
     print(f"   {bids_dir}")
+    if func_incomplete:
+        print(f" Held {len(func_incomplete)} BOLD run(s) with unknown task under "
+              f"sourcedata/func/ (need TaskName).")
     print(" Subjects/sessions: " + ", ".join(
         f"{pid}[{','.join(sorted(subjects[pid]))}]" for pid in participant_ids))
     print("=" * 70)
