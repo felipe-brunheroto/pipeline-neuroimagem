@@ -80,17 +80,21 @@ def steps_table(st):
         ["2", "Desidentificar",
          "Remove identificadores dos arquivos .json. Só depois disto os dados "
          "estão desidentificados."],
-        ["3", "Remoção facial (defacing)",
+        ["3", "Montar o conjunto BIDS",
+         "Organiza as imagens em bids/sub-* (formato padrão FAIR): estruturais "
+         "(T1/T2/FLAIR) e, quando houver, funcionais (BOLD)."],
+        ["4", "Montar derivados + sourcedata",
+         "Coloca os mapas do scanner (ADC, TRACEW, SWI, perfusão) em "
+         "bids/derivatives/ e prepara ASL e field map em bids/sourcedata/."],
+        ["5", "Remoção facial (defacing)",
          "Cria cópias sem rosto em bids/derivatives/defaced/. "
-         "Mantém os originais. Precisa do FreeSurfer."],
-        ["4", "Montar o BIDS",
-         "Gera a pasta bids/ (formato padrão FAIR), só com as anatômicas."],
-        ["5", "FreeSurfer (recon)",
+         "Mantém os originais. Precisa do FreeSurfer. Rode depois do passo 3."],
+        ["6", "FreeSurfer (recon)",
          "Reconstrói o cérebro e compara cada pessoa no tempo. MUITO demorado — "
          "roda em lotes (você escolhe quantos por vez). Precisa do FreeSurfer."],
-        ["6", "Extrair os volumes",
+        ["7", "Extrair os volumes",
          "Gera tabelas (.tsv) de volume e espessura por região, em "
-         "derivatives/fs_tables/. É o produto final desta etapa."],
+         "bids/derivatives/freesurfer/stats/. É o produto final desta etapa."],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in r] for i, r in enumerate(rows)]
@@ -162,7 +166,7 @@ def faq_table(st):
         ["O passo 0 diz que falta o dcm2niix (ou o pydicom).",
          "Na pasta do projeto, rode  python3 -m pip install -r requirements.txt  "
          "e depois rode o passo 0 de novo. O próprio passo 0 mostra como."],
-        ["Os passos 3, 5 ou 6 dão erro de FreeSurfer.",
+        ["Os passos 5, 6 ou 7 dão erro de FreeSurfer.",
          "O FreeSurfer 8 precisa estar instalado e “carregado” nesta janela do "
          "Terminal. Isso é tarefa do responsável (um comando por janela)."],
         ["Mudei a pasta do projeto de lugar; preciso reconfigurar algo?",
@@ -170,8 +174,9 @@ def faq_table(st):
          "onde estiverem. Só o local salvo (local_dos_dados.txt) é por máquina."],
         ["Onde ficam os resultados?",
          "Tudo dentro de uma única pasta bids/: a conversão crua em "
-         "bids/sourcedata/conversion/ (passos 1–3), o BIDS organizado em "
-         "bids/sub-* (passo 4) e as análises em bids/derivatives/ (passos 5–6). "
+         "bids/sourcedata/conversion/ (passos 1–2), o BIDS organizado em "
+         "bids/sub-* (passo 3) e os derivados e análises em bids/derivatives/ "
+         "(passos 4–7). "
          "Os DICOM originais nunca são alterados."],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
@@ -278,7 +283,7 @@ def build(path):
     F.append(Paragraph("4. Os passos, um a um", st["h2"]))
     F.append(Paragraph("Faça <b>em ordem</b> (0 → 1 → 2 → …). No passo 1 o menu "
                        "confirma antes a pasta dos exames (seção 3). Os passos "
-                       "3, 5 e 6 precisam do FreeSurfer (já instalado no "
+                       "5, 6 e 7 precisam do FreeSurfer (já instalado no "
                        "computador de Recon pelo responsável).", st["body"]))
     F.append(steps_table(st))
 
@@ -291,7 +296,7 @@ def build(path):
         "(OneDrive/Drive/Dropbox), e-mail ou pen-drive não autorizado.",
         "Nunca apague ou edite os DICOM originais nem a pasta dos pacientes. "
         "O pipeline só cria arquivos novos.",
-        "Só compartilhe algo depois do passo 2 (desidentificar) e do passo 3 "
+        "Só compartilhe algo depois do passo 2 (desidentificar) e do passo 5 "
         "(remoção facial) — e mesmo assim, somente com autorização.",
         "Em caso de dúvida ou erro que você não entende: PARE e chame o "
         "responsável. Não “tente consertar” no escuro.",
@@ -309,7 +314,7 @@ def build(path):
         "(é só rodar o comando de ativação uma vez).",
         "Pediu senha do Mac: isso é permissão do sistema — só prossiga se o "
         "responsável tiver orientado.",
-        "O passo 5 está “travado” há muito tempo: provavelmente está só "
+        "O passo 6 está “travado” há muito tempo: provavelmente está só "
         "demorando (é normal levar horas). Não feche no susto; confirme com o "
         "responsável.",
         "Qualquer linha em vermelho com a palavra ERROR/MISMATCH: anote e "
