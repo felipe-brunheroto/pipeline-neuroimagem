@@ -11,40 +11,61 @@ for one person is one `grep`/glob away.
 
 ## The whole project at a glance
 
+The code is shared; each study has its own folder under `projects/`, and inside
+it one BIDS root. Everything below `projects/<NAME>/` has the same shape for
+every study.
+
 ```
 Pipeline Neuroimagem/
-├── code/                      # all pipeline scripts + config (paths.py, series_map.csv, …)
-├── Patient Files/             # raw DICOM input — one folder per exam. READ-ONLY, never shared.
-├── bids/                      # THE dataset (everything below is here)
-│   ├── dataset_description.json, README, CHANGES, participants.tsv/.json, .bidsignore
-│   ├── sub-CBR003/ … sub-CBR053/        # raw BIDS (the OpenNeuro upload target)
-│   │   └── ses-1/ … /anat/  func/
-│   ├── sourcedata/
-│   │   ├── conversion/         # the working/pre-BIDS tree: descriptive-named NIfTIs,
-│   │   │                       #   provenance.csv, validation_report.csv, logs, reports/
-│   │   ├── asl/  fmap/  func/  unknown/   # partially-curated / held-for-review series
-│   └── derivatives/
-│       ├── scanner-derived/    # ADC, TRACEW, SWI family, perfusion maps
-│       ├── defaced/            # face-masked anatomicals (desc-defaced)
-│       └── freesurfer/         # recon-all output (+ stats/, logs/)
-├── Pipeline_Alunos/           # student teaching package (pt-BR guided menu)
-├── deliverable/               # generated PDFs + handoff/export bundles (no patient data)
+├── code/                      # shared pipeline scripts + config (paths.py, series_map.csv, …)
+├── Pipeline_Alunos/           # student teaching package (pt-BR guided menu; asks which study)
+├── projects/
+│   ├── CBR/                   # CBR / NEUROCOVID — input: DICOM
+│   │   ├── project.json       # study settings (tracked in git)
+│   │   ├── Patient Files/     # raw DICOM input — one folder per exam. READ-ONLY, never shared.
+│   │   ├── bids/              # THE dataset for this study (see below)
+│   │   ├── archive/           # timestamped backups of previous runs (kept local)
+│   │   └── deliverable/       # generated PDFs + handoff/export bundles (no patient data)
+│   └── COGAGING/              # input: BIDS delivered by the acquisition team
+│       ├── project.json
+│       ├── sourcedata/received/   # delivered sub-* folders, untouched (READ-ONLY; site identifiers inside)
+│       └── bids/              # de-identified working dataset built by import_bids.py
 ├── docs/                      # project documents (summary .docx, notes)
-├── archive/                   # timestamped backups of previous runs (kept local)
 ├── README.md  QUICKSTART.md  CLAUDE.md  STRUCTURE.md  requirements.txt
 ```
 
-> **code travels, data does not.** `code/`, `Pipeline_Alunos/`, and the docs are
-> safe to share/version-control. `Patient Files/`, `bids/`, and `archive/` are
-> patient-derived and are git-ignored — they stay on the secure machine.
+Inside each `projects/<NAME>/bids/`:
+
+```
+bids/
+├── dataset_description.json, README, CHANGES, participants.tsv/.json, .bidsignore
+├── sub-CBR003/ … (or sub-GER00007/ …)   # raw BIDS (the OpenNeuro upload target)
+│   └── ses-1/ … /anat/  func/  dwi/
+├── sourcedata/
+│   ├── conversion/         # DICOM projects: working/pre-BIDS tree, provenance.csv,
+│   │                       #   validation_report.csv, logs, reports/
+│   ├── import/             # BIDS projects: import logs
+│   └── asl/  fmap/  func/  unknown/   # partially-curated / held-for-review series
+└── derivatives/
+    ├── scanner-derived/    # ADC, TRACEW, SWI family, perfusion maps
+    ├── defaced/            # face-masked anatomicals (desc-defaced)
+    └── freesurfer/         # recon-all output (+ stats/, logs/)
+```
+
+> **code travels, data does not.** `code/`, `Pipeline_Alunos/`, the
+> `project.json` files and the docs are safe to share/version-control.
+> `Patient Files/`, `sourcedata/`, `bids/`, and `archive/` are patient-derived
+> and are git-ignored — they stay on the secure machine.
 
 ## Which step writes where
 
-Run scripts as `python code/<script>.py` from the project root. Defaults come
-from [`code/paths.py`](code/paths.py); no path arguments are needed.
+Run scripts as `python code/<script>.py --project NAME` from the repository
+root. Defaults come from [`code/paths.py`](code/paths.py); no path arguments are
+needed. Paths in this table are relative to `projects/<NAME>/`.
 
 | # | Step (script) | Reads | Writes |
 |---|---------------|-------|--------|
+| 1 | `import_bids.py` (BIDS-input projects; replaces steps 1–4) | `sourcedata/received/` | `bids/sub-*` (with `ses-1`, de-identified) + `bids/derivatives/scanner-derived/` + dataset metadata |
 | 1 | `dicom_to_bids.py` | `Patient Files/` | `bids/sourcedata/conversion/` (NIfTIs, `provenance.csv`, `validation_report.csv`, `reports/`) |
 | 2 | `deidentify_sidecars.py` | `bids/sourcedata/conversion/` | same (scrubs `*.json` in place; writes `deidentification_log.txt`) |
 | 3 | `make_bids.py` | `…/conversion/provenance.csv` | `bids/sub-*` (raw anat/func) + dataset metadata |

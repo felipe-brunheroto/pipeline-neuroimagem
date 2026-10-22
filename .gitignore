@@ -10,6 +10,12 @@ Patient Files/
 *.dcm
 DICOMDIR
 
+# BIDS delivered by other teams (projects/<NAME>/sourcedata/received). Still
+# carries site identifiers in the JSON; also any per-subject sub-* folder that
+# lands outside bids/ by mistake.
+sourcedata/
+sub-*/
+
 # The single BIDS dataset root (patient-derived imaging). This now holds
 # EVERYTHING: raw sub-*, the working conversion tree (bids/sourcedata/conversion,
 # formerly BIDS_output/), the sourcedata scaffolds, and all derivatives
@@ -34,7 +40,8 @@ deliverable/
 
 # Student menu: machine-specific path to the DICOM data folder (no patient
 # data, just a local path). Remembered per-computer, not shared.
-Pipeline_Alunos/local_dos_dados.txt
+Pipeline_Alunos/local_dos_dados*.txt
+Pipeline_Alunos/projeto_atual.txt
 
 # macOS housekeeping
 .DS_Store

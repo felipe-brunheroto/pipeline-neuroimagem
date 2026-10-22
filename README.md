@@ -1,4 +1,4 @@
-# CBR / NEUROCOVID — DICOM → NIfTI → BIDS-like pipeline
+# Pipeline Neuroimagem — DICOM/BIDS → BIDS → FreeSurfer, for several studies
 
 A small, **local-only** pipeline that converts raw DICOM MRI into NIfTI,
 organizes it into a working layout (`anat / func / dwi / fmap / perf / swi /
@@ -8,11 +8,22 @@ dataset (`bids/`) with proper derivatives and sourcedata. Unfamiliar series
 (e.g. a future BOLD project) are classified via an editable `series_map.csv`,
 and anything unrecognized is quarantined and reported rather than mis-sorted.
 
-**Everything lives under one BIDS root, `bids/`** (raw `sub-*`, the working
-conversion tree under `sourcedata/conversion/`, and all `derivatives/`), so the
-study is one self-contained, OpenNeuro-ready folder. The pipeline **scripts live
-in `code/`** and run as `python code/<script>.py`. See **[STRUCTURE.md](STRUCTURE.md)**
-for the full layout, a step→folder map, and how to trace one patient.
+**One shared engine, one folder per study.** The scripts live in `code/`; each
+study keeps its data in `projects/<NAME>/` with a `project.json` describing it:
+
+| Project | Input | Notes |
+|---|---|---|
+| `CBR` (CBR / NEUROCOVID) | DICOM (`projects/CBR/Patient Files/`) | longitudinal structural MRI, SWI, clinical DWI, multi-TI PASL in some exams |
+| `COGAGING` | BIDS delivered by the acquisition team (`projects/COGAGING/sourcedata/received/`) | 3D T1w + FLAIR, 64-dir DWI, resting-state BOLD; imported with `import_bids.py` |
+
+Every command takes **`--project NAME`** (or set `PIPELINE_PROJECT`), e.g.
+`python code/run_recon_long.py --project COGAGING --dry-run`. Paths written as
+`bids/...` below are relative to that project's folder (`projects/<NAME>/bids/...`).
+**Each study lives under one BIDS root** (raw `sub-*`, the working conversion
+tree under `sourcedata/conversion/`, and all `derivatives/`), so each is one
+self-contained, OpenNeuro-ready folder. See **[STRUCTURE.md](STRUCTURE.md)** for
+the full layout, a step→folder map, and how to trace one patient. The examples
+below use `--project CBR`; swap in your project's name.
 
 > **Golden rule: code travels, data does not.** The scripts in `code/` contain
 > no patient data and can be shared/version-controlled freely. Raw DICOMs and the
@@ -30,12 +41,13 @@ path-editing is needed when moving the project.
 
 | File (under `code/`) | What it is |
 |------|------------|
-| `paths.py` | One place that defines the layout (`PATIENT_FILES`, `BIDS_ROOT`, `CONVERSION_DIR`, `FREESURFER_DIR`, …). Imported by the other scripts. |
+| `paths.py` | One place that defines the layout (`PATIENT_FILES`, `BIDS_ROOT`, `CONVERSION_DIR`, `FREESURFER_DIR`, …) for the project chosen with `--project`. Imported by the other scripts. |
 | `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed, **and creates the `Patient Files/` input folder** (with a README) on first run so data is dropped in the right place. |
 | `setup_workspace.py` | Creates/validates the `Patient Files/` drop folder and diagnoses common mistakes (pointing inside one exam, empty folder). Imported by the two above; also runnable directly. |
 | `series_classifier.py` | Shared rules that decide each series' datatype + BIDS suffix. Reads `series_map.csv` first, then built-in keywords; unrecognized → `unknown`. |
 | `series_map.csv` | **Operator-editable** map: teaches the pipeline new series (e.g. a future BOLD study) without code changes. |
 | `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/func/dwi/fmap/perf/swi/misc, writes provenance + validation + an **unknown-series report** and a readiness summary. |
+| `import_bids.py` | Step 1 for projects whose input is **BIDS** (e.g. COGAGING): copies the delivered `sub-*` folders into `bids/`, adds the session level (`ses-1`), removes identifier fields from every sidecar, moves scanner-derived images (e.g. TRACEW) to `derivatives/scanner-derived/`, writes the dataset files and checks the result. The delivered copy is never modified. |
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
 | `make_bids.py` | Builds the validator-clean, FAIR raw BIDS dataset under `bids/`: anatomicals (`T1w`/`T2w`/`FLAIR`) and functional (`bold`, when a task is known). `acq-` preserves the protocol; incomplete BOLD is held under `sourcedata/func/`. |
 | `make_derivatives.py` | Builds `bids/derivatives/scanner-derived/` (ADC, TRACEW, SWI, perfusion maps) and the `bids/sourcedata/` scaffolds for raw ASL (partially filled from the DICOMs) and the phase-only field map, plus quarantined `unknown` series. |
@@ -100,23 +112,23 @@ root. Explicit paths still work as an override:
 ```bash
 # 1. Convert + organize + validate -> bids/sourcedata/conversion/
 #    (also writes reports/unknown_series_report.csv there)
-python code/dicom_to_bids.py
+python code/dicom_to_bids.py --project CBR
 
 # 2. De-identify the JSON sidecars (site/scanner fields)
-python code/deidentify_sidecars.py
+python code/deidentify_sidecars.py --project CBR
 
 # 3. Build the FAIR, validator-clean raw BIDS dataset (anat + func) -> bids/sub-*
-python code/make_bids.py
+python code/make_bids.py --project CBR
 
 # 4. Build derivatives + sourcedata: scanner-derived maps (ADC/TRACEW/SWI/
 #    perfusion) under bids/derivatives/scanner-derived/, and ASL + phase-only
 #    field map scaffolds under bids/sourcedata/.
-python code/make_derivatives.py
+python code/make_derivatives.py --project CBR
 
 # 5. Deface the anatomicals (T1/T2/FLAIR) — needs FreeSurfer 7.3+ (mideface).
 #    Reads bids/, writes bids/derivatives/defaced/ with desc-defaced names.
-python code/deface_anat.py --dry-run    # preview (no FreeSurfer needed)
-python code/deface_anat.py              # actually deface
+python code/deface_anat.py --project CBR --dry-run    # preview (no FreeSurfer needed)
+python code/deface_anat.py --project CBR              # actually deface
 ```
 
 Re-running steps 3–4 is safe: each rebuilds only the subtree it owns and leaves
@@ -140,6 +152,21 @@ The data never leaves the machine in any case.
 
 ---
 
+### Projects delivered as BIDS (COGAGING)
+
+Steps 1–4 above are replaced by a single import. Put the delivered `sub-*`
+folders in `projects/COGAGING/sourcedata/received/` (read-only from then on),
+then:
+
+```bash
+python code/import_bids.py --project COGAGING --dry-run   # preview
+python code/import_bids.py --project COGAGING             # build projects/COGAGING/bids
+python code/deface_anat.py --project COGAGING
+python code/run_recon_long.py --project COGAGING --dry-run
+```
+
+Re-running the import skips subjects already in `bids/` (`--force` rebuilds).
+
 ## Structural analysis (FreeSurfer 8 — on the dedicated recon Mac)
 
 Conversion/defacing/QC happen on the conversion Mac; the heavy recon runs on a
@@ -156,16 +183,16 @@ Workflow:
    export FREESURFER_HOME=/Applications/freesurfer/8.0.0
    source $FREESURFER_HOME/SetUpFreeSurfer.sh
 
-   python code/run_recon_long.py --dry-run                  # preview the plan
-   python code/run_recon_long.py --input bids/derivatives/defaced \
+   python code/run_recon_long.py --project CBR --dry-run                  # preview the plan
+   python code/run_recon_long.py --project CBR --input projects/CBR/bids/derivatives/defaced \
        --jobs 4 --threads 4                                 # cross -> base -> long
    ```
    Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative);
-   pass `--input bids/derivatives/defaced` to recon the privacy-preserving tree.
+   pass `--input projects/CBR/bids/derivatives/defaced` to recon the privacy-preserving tree.
    ~8 GB RAM + `threads` cores per job; `--jobs 4` is comfortable on 64 GB.
 3. **QC** the surfaces (freeview; check the Euler number) before trusting any
    subject.
-4. **Extract metrics** with `python code/extract_fs_stats.py` (wraps
+4. **Extract metrics** with `python code/extract_fs_stats.py --project CBR` (wraps
    `asegstats2table` / `aparcstats2table` into `bids/derivatives/freesurfer/stats/`),
    then fit mixed-effects models (region ~ clinical_status × time + (1│subject)).
    With N=4 this is a pilot — favour hypothesis-driven ROIs over whole-brain

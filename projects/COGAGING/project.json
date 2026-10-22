@@ -1,0 +1,9 @@
+{
+  "name": "COGAGING",
+  "title": "COGAGING",
+  "description": "Cognitive ageing study: structural MRI (3D T1w + 3D FLAIR), 64-direction DWI and resting-state BOLD (Siemens Skyra 3T). Delivered already converted to BIDS.",
+  "subject_prefix": "GER",
+  "input": "bids",
+  "default_session": "ses-1",
+  "sessions": "Delivered without a session level; import_bids.py files each visit under default_session (ses-1) so follow-ups can be added as ses-2, ses-3."
+}

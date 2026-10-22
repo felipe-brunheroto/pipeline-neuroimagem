@@ -183,7 +183,7 @@ def write_fs_dataset_description(subjects_dir):
     if not os.path.isfile(desc):
         with open(desc, "w", encoding="utf-8") as f:
             json.dump({
-                "Name": "CBR / NEUROCOVID FreeSurfer recon",
+                "Name": f"{paths.PROJECT['title']} FreeSurfer recon",
                 "BIDSVersion": "1.9.0",
                 "DatasetType": "derivative",
                 "GeneratedBy": [{

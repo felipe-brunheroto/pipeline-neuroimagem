@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-passos.py — Menu guiado (em portugues) do pipeline CBR para alunos.
+passos.py — Menu guiado (em portugues) do pipeline de neuroimagem para alunos.
 
 NAO e preciso decorar comandos: este menu explica cada etapa em portugues,
 pergunta se voce quer continuar e roda o passo para voce. Os programas "de
 verdade" ficam na pasta "code" do projeto (um nivel acima desta) e nao sao
 alterados.
 
-ONDE ESTAO OS DADOS? O passo 1 (converter DICOM) precisa saber em que pasta
-estao os exames. Por padrao ele procura na pasta "Patient Files", ao lado do
-projeto. Se os seus dados estiverem em OUTRO lugar (outro HD, pen-drive,
-Downloads, etc.), use o item "D" do menu: voce pode ARRASTAR a pasta para a
-janela do Terminal e o menu confere se ela tem os exames antes de rodar. O
-local escolhido fica guardado em local_dos_dados.txt para a proxima vez.
+QUAL ESTUDO? O mesmo pipeline atende mais de um estudo (ex.: CBR e COGAGING).
+Cada um tem sua pasta em "projects/". O menu pergunta o estudo ao abrir (item
+P troca) e lembra a escolha em projeto_atual.txt.
+
+ONDE ESTAO OS DADOS? Nos estudos que chegam em DICOM (ex.: CBR), o passo 1
+precisa saber em que pasta estao os exames. Por padrao ele procura na pasta
+"Patient Files" do estudo (projects/<ESTUDO>/Patient Files). Se os seus dados
+estiverem em OUTRO lugar (outro HD, pen-drive, Downloads, etc.), use o item
+"D" do menu: voce pode ARRASTAR a pasta para a janela do Terminal e o menu
+confere se ela tem os exames antes de rodar. O local escolhido fica guardado
+em local_dos_dados_<ESTUDO>.txt para a proxima vez. Nos estudos que ja chegam
+em BIDS (ex.: COGAGING), o passo 1 importa a pasta
+projects/<ESTUDO>/sourcedata/received.
 
 Como abrir: de DOIS cliques em "iniciar.command" (na mesma pasta), ou rode
     python3 passos.py
 """
 
+import json
 import os
 import sys
 import subprocess
@@ -27,11 +35,35 @@ from pathlib import Path
 # A pasta do projeto e a pasta de cima (Pipeline_Alunos fica dentro do projeto).
 RAIZ = Path(__file__).resolve().parent.parent
 AQUI = Path(__file__).resolve().parent
+PROJETOS = RAIZ / "projects"
+ARQ_PROJETO = AQUI / "projeto_atual.txt"
 
-# Onde o passo 1 procura os exames por padrao, e onde guardamos a escolha do
-# aluno (so um caminho de pasta; NAO contem dados de paciente).
-PADRAO_DADOS = RAIZ / "Patient Files"
-ARQ_LOCAL = AQUI / "local_dos_dados.txt"
+# Estudo em uso (nome da pasta em projects/) e a forma como os dados chegam:
+# "dicom" (convertemos) ou "bids" (ja convertidos; importamos). Definidos por
+# escolher_projeto() ao abrir o menu.
+PROJETO = None
+ENTRADA = "dicom"
+
+
+def listar_projetos():
+    """{nome: configuracao} de cada pasta em projects/ que tem project.json."""
+    achados = {}
+    for arq in sorted(PROJETOS.glob("*/project.json")):
+        try:
+            achados[arq.parent.name] = json.loads(arq.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return achados
+
+
+def padrao_dados():
+    """Onde o passo 1 procura os exames por padrao (no estudo atual)."""
+    return PROJETOS / PROJETO / "Patient Files"
+
+
+def arq_local():
+    """Onde guardamos a pasta escolhida pelo aluno (so um caminho; sem dados)."""
+    return AQUI / f"local_dos_dados_{PROJETO}.txt"
 
 # Cada passo: (rotulo, titulo, script, explicacao em portugues, precisa_freesurfer)
 PASSOS = [
@@ -65,7 +97,8 @@ PASSOS = [
      "Remove o rosto das imagens estruturais (T1/T2/FLAIR) para que ninguem "
      "possa reconstruir a face. Le de bids/ e grava copias em "
      "bids/derivatives/defaced/. Mantem os originais intactos. Precisa do "
-     "FreeSurfer (roda no computador de Recon). Rode DEPOIS do passo 3.",
+     "FreeSurfer (roda no computador de Recon). Rode DEPOIS do passo 3 (ou do "
+     "passo 1, nos estudos que ja chegam em BIDS).",
      True),
     ("6", "FreeSurfer (recon longitudinal)", "run_recon_long.py",
      "Reconstroi o cerebro de cada exame com o FreeSurfer 8 e compara cada "
@@ -78,6 +111,25 @@ PASSOS = [
      "Este e o produto final desta etapa do treinamento.",
      True),
 ]
+
+# Nos estudos que ja chegam em BIDS, o passo 1 e a importacao, e os passos 2-4
+# (desidentificar, montar BIDS, derivados) ja estao incluidos nela.
+PASSO_1_BIDS = (
+    "1", "Importar o BIDS recebido", "import_bids.py",
+    "Copia as imagens que a equipe do estudo entregou (pasta sourcedata/received "
+    "do estudo) para bids/, acrescenta a sessao (ses-1), apaga os campos de "
+    "instituicao/equipamento dos .json e separa as imagens que o scanner ja "
+    "processou (ex.: TRACEW). NUNCA altera a copia recebida.",
+    False)
+SO_DICOM = {"2", "3", "4"}
+
+
+def passos_do_projeto():
+    """A lista de passos do estudo atual (depende de como os dados chegam)."""
+    if ENTRADA != "bids":
+        return PASSOS
+    return [PASSO_1_BIDS if p[0] == "1" else p for p in PASSOS if p[0] not in SO_DICOM]
+
 
 # Apenas o passo 1 (conversao) precisa saber onde estao os DICOM. Os demais leem
 # de bids/ (a conversao fica em bids/sourcedata/conversion), entao nao recebem
@@ -220,8 +272,8 @@ def _limpar_caminho(texto):
 def carregar_local():
     """Le a pasta de dados guardada (se houver). Devolve Path ou None."""
     try:
-        if ARQ_LOCAL.is_file():
-            txt = ARQ_LOCAL.read_text(encoding="utf-8").strip()
+        if arq_local().is_file():
+            txt = arq_local().read_text(encoding="utf-8").strip()
             if txt:
                 return Path(txt)
     except Exception:
@@ -230,9 +282,9 @@ def carregar_local():
 
 
 def salvar_local(pasta):
-    """Guarda a pasta escolhida em local_dos_dados.txt (so o caminho)."""
+    """Guarda a pasta escolhida em local_dos_dados_<ESTUDO>.txt (so o caminho)."""
     try:
-        ARQ_LOCAL.write_text(str(Path(pasta).resolve()) + "\n", encoding="utf-8")
+        arq_local().write_text(str(Path(pasta).resolve()) + "\n", encoding="utf-8")
     except Exception as err:
         print(f"  (aviso: nao consegui guardar o local: {err})")
 
@@ -240,7 +292,7 @@ def salvar_local(pasta):
 def local_dos_dados():
     """Pasta de dados em uso agora: a guardada, senao o local padrao."""
     salvo = carregar_local()
-    return salvo if salvo is not None else PADRAO_DADOS
+    return salvo if salvo is not None else padrao_dados()
 
 
 def escolher_pasta_dados():
@@ -256,7 +308,7 @@ def escolher_pasta_dados():
     print("      (o caminho aparece sozinho - jeito mais facil), ou")
     print("   2) cole/digite o caminho da pasta e aperte ENTER, ou")
     print("   3) aperte ENTER sem nada para usar o local padrao:")
-    print(f"      {PADRAO_DADOS}")
+    print(f"      {padrao_dados()}")
     print("")
     try:
         bruto = input("  Pasta de dados> ").strip()
@@ -264,13 +316,13 @@ def escolher_pasta_dados():
         print("\n  (cancelado)")
         return local_dos_dados(), "cancelado"
 
-    escolhida = PADRAO_DADOS if not bruto else Path(_limpar_caminho(bruto))
+    escolhida = padrao_dados() if not bruto else Path(_limpar_caminho(bruto))
     estado = diagnosticar(escolhida)
 
     if estado == "ok":
         salvar_local(escolhida)
         print("\n  [ok] Pronto! Vou usar esta pasta e lembrar dela na proxima")
-        print("       vez (guardado em local_dos_dados.txt).")
+        print(f"       vez (guardado em {arq_local().name}).")
     else:
         print("\n  Nada foi guardado. Tente de novo pelo item D do menu ou")
         print("  chame o responsavel.")
@@ -317,12 +369,58 @@ def garantir_pasta_para_passo1():
 #  MENU
 # ===========================================================================
 
+def escolher_projeto(perguntar=False):
+    """
+    Define o estudo em uso (PROJETO/ENTRADA). Com um so estudo, usa ele. Com
+    varios, usa o ultimo escolhido (projeto_atual.txt), ou pergunta quando
+    'perguntar' for True ou ainda nao houver escolha.
+    """
+    global PROJETO, ENTRADA
+    projetos = listar_projetos()
+    if not projetos:
+        print(f"\n  [erro] nenhum estudo encontrado em {PROJETOS}.")
+        print("         Chame o responsavel.")
+        sys.exit(1)
+    nomes = list(projetos)
+    escolhido = None
+    if len(nomes) == 1:
+        escolhido = nomes[0]
+    elif not perguntar and ARQ_PROJETO.is_file():
+        salvo = ARQ_PROJETO.read_text(encoding="utf-8").strip()
+        escolhido = salvo if salvo in projetos else None
+    while escolhido is None:
+        print("\n" + "-" * 68)
+        print("  QUAL ESTUDO VOCE VAI PROCESSAR?")
+        print("-" * 68)
+        for i, nome in enumerate(nomes, start=1):
+            print(f"   {i}) {nome} - {projetos[nome].get('title', nome)}")
+        try:
+            resp = input("\n  Estudo (numero)> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Ate logo!")
+            sys.exit(0)
+        if resp.isdigit() and 1 <= int(resp) <= len(nomes):
+            escolhido = nomes[int(resp) - 1]
+        else:
+            print("  Opcao invalida. Tente de novo.")
+    PROJETO = escolhido
+    ENTRADA = projetos[escolhido].get("input", "dicom")
+    try:
+        ARQ_PROJETO.write_text(PROJETO + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
 def cabecalho():
     print("\n" + "=" * 68)
-    print("  PIPELINE CBR - menu guiado (do DICOM aos volumes do cerebro)")
+    print(f"  PIPELINE DE NEUROIMAGEM - estudo {PROJETO} (menu guiado)")
     print("=" * 68)
-    print("  Mapa:  DICOM -> NIfTI -> desidentificar -> BIDS -> derivados ->")
-    print("         remocao facial -> FreeSurfer -> VOLUMES")
+    if ENTRADA == "bids":
+        print("  Mapa:  BIDS recebido -> importar e desidentificar ->")
+        print("         remocao facial -> FreeSurfer -> VOLUMES")
+    else:
+        print("  Mapa:  DICOM -> NIfTI -> desidentificar -> BIDS -> derivados ->")
+        print("         remocao facial -> FreeSurfer -> VOLUMES")
     print("  Dica:  faca os passos em ordem (0,1,2,...). Em caso de duvida,")
     print("         leia o GUIA_DO_ALUNO.pdf ou chame o responsavel.")
     print("=" * 68)
@@ -330,26 +428,35 @@ def cabecalho():
 
 def menu():
     cabecalho()
-    print(f"\n  Pasta de dados (passo 1): {_curto(local_dos_dados())}")
-    print("  (errada ou em outro lugar? use o item D)")
+    if ENTRADA == "bids":
+        print(f"\n  Dados recebidos (passo 1): "
+              f"{_curto(PROJETOS / PROJETO / 'sourcedata' / 'received')}")
+    else:
+        print(f"\n  Pasta de dados (passo 1): {_curto(local_dos_dados())}")
+        print("  (errada ou em outro lugar? use o item D)")
     print("\n  Escolha um numero/letra e aperte ENTER:\n")
-    for num, titulo, _script, _exp, fs in PASSOS:
+    for num, titulo, _script, _exp, fs in passos_do_projeto():
         marca = "  (precisa do FreeSurfer)" if fs else ""
         print(f"   {num}) {titulo}{marca}")
-    print("   D) Onde estao meus arquivos (apontar/conferir a pasta de dados)")
+        if ENTRADA == "bids" and num == "1":
+            print("   2-4) (ja incluidos no passo 1 neste estudo)")
+    if ENTRADA != "bids":
+        print("   D) Onde estao meus arquivos (apontar/conferir a pasta de dados)")
+    if len(listar_projetos()) > 1:
+        print("   P) Trocar de estudo")
     print("   q) Sair")
     print("")
 
 
 def rodar_passo(num):
-    passo = next((p for p in PASSOS if p[0] == num), None)
+    passo = next((p for p in passos_do_projeto() if p[0] == num), None)
     if passo is None:
         print("  Opcao invalida. Tente de novo.")
         return
     _num, titulo, script, exp, precisa_fs = passo
     caminho = RAIZ / "code" / script
     print("\n" + "-" * 68)
-    print(f"  PASSO {num}: {titulo}")
+    print(f"  PASSO {num}: {titulo}  (estudo {PROJETO})")
     print("-" * 68)
     print("  " + exp.replace(". ", ".\n  "))
     if not caminho.is_file():
@@ -373,9 +480,9 @@ def rodar_passo(num):
         print("  Ok, nada foi feito.")
         return
 
-    cmd = [sys.executable, str(caminho)] + extra_args
+    cmd = [sys.executable, str(caminho), "--project", PROJETO] + extra_args
 
-    # O passo 5 (FreeSurfer) roda em lotes: perguntamos quantos em paralelo.
+    # O passo 6 (FreeSurfer) roda em lotes: perguntamos quantos em paralelo.
     if script == "run_recon_long.py":
         n = input("  Quantos exames processar em paralelo? "
                   "(recomendado: 2; ENTER usa 2): ").strip()
@@ -387,7 +494,7 @@ def rodar_passo(num):
     try:
         result = subprocess.run(cmd)
         if result.returncode == 0:
-            print("\n  ✔ Passo concluido. Veja os resultados na pasta do projeto.")
+            print("\n  ✔ Passo concluido. Veja os resultados na pasta do estudo.")
         else:
             print("\n  ✖ O passo terminou com aviso/erro (codigo "
                   f"{result.returncode}). Leia a mensagem acima; se nao tiver")
@@ -397,9 +504,13 @@ def rodar_passo(num):
 
 
 def main():
-    if "--list" in sys.argv:        # modo de teste: so mostra o menu e sai
-        menu()
+    if "--list" in sys.argv:        # modo de teste: mostra o menu de cada estudo e sai
+        global PROJETO, ENTRADA
+        for nome, conf in listar_projetos().items():
+            PROJETO, ENTRADA = nome, conf.get("input", "dicom")
+            menu()
         return
+    escolher_projeto()
     while True:
         menu()
         try:
@@ -410,7 +521,10 @@ def main():
         if escolha in ("q", "sair", "quit", "exit"):
             print("  Ate logo!")
             return
-        if escolha in ("d", "dados"):
+        if escolha in ("p", "estudo") and len(listar_projetos()) > 1:
+            escolher_projeto(perguntar=True)
+            continue
+        if escolha in ("d", "dados") and ENTRADA != "bids":
             conferir_dados()
         else:
             rodar_passo(escolha)

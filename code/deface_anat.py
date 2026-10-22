@@ -194,7 +194,7 @@ def write_defaced_dataset_description(output_dir):
     path = os.path.join(deriv_root, "dataset_description.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump({
-            "Name": "CBR / NEUROCOVID defaced anatomicals",
+            "Name": f"{paths.PROJECT['title']} defaced anatomicals",
             "BIDSVersion": BIDS_VERSION,
             "DatasetType": "derivative",
             "GeneratedBy": [{

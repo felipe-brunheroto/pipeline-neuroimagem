@@ -76,7 +76,9 @@ def steps_table(st):
         ["1", "Converter DICOM em NIfTI",
          "Lê os exames da pasta de dados confirmada (seção 3) e cria as imagens "
          ".nii.gz organizadas em bids/sourcedata/conversion/, com provenance.csv "
-         "e validation_report.csv. Os DICOM originais não são tocados."],
+         "e validation_report.csv. Os DICOM originais não são tocados. "
+         "No COGAGING (já chega em BIDS) este passo importa os dados recebidos, "
+         "e os passos 2 a 4 já vêm incluídos."],
         ["2", "Desidentificar",
          "Remove identificadores dos arquivos .json. Só depois disto os dados "
          "estão desidentificados."],
@@ -171,11 +173,11 @@ def faq_table(st):
          "Terminal. Isso é tarefa do responsável (um comando por janela)."],
         ["Mudei a pasta do projeto de lugar; preciso reconfigurar algo?",
          "Não. Tudo é relativo à pasta do projeto, e o item D reaponta os dados "
-         "onde estiverem. Só o local salvo (local_dos_dados.txt) é por máquina."],
+         "onde estiverem. Só o local salvo (local_dos_dados_<ESTUDO>.txt) é por máquina."],
         ["Onde ficam os resultados?",
-         "Tudo dentro de uma única pasta bids/: a conversão crua em "
-         "bids/sourcedata/conversion/ (passos 1–2), o BIDS organizado em "
-         "bids/sub-* (passo 3) e os derivados e análises em bids/derivatives/ "
+         "Tudo dentro da pasta bids/ do estudo (projects/<ESTUDO>/bids/): a "
+         "conversão crua em bids/sourcedata/conversion/ (passos 1–2), o BIDS "
+         "organizado em bids/sub-* (passo 3) e os derivados e análises em bids/derivatives/ "
          "(passos 4–7). "
          "Os DICOM originais nunca são alterados."],
     ]
@@ -200,7 +202,7 @@ def build(path):
                             title="Guia do Aluno - pipeline CBR")
     F = []
     F.append(Paragraph("Guia do Aluno — do DICOM aos volumes do cérebro", st["title"]))
-    F.append(Paragraph("Pipeline CBR · FreeSurfer 8 · passo a passo para quem está "
+    F.append(Paragraph("Pipeline de neuroimagem (CBR e COGAGING) · FreeSurfer 8 · passo a passo para quem está "
                        "abrindo o Terminal pela primeira vez", st["sub"]))
     F.append(Spacer(1, 3))
     F.append(Paragraph(f"Atualizado em {date.today().isoformat()} &nbsp;·&nbsp; "
@@ -241,21 +243,29 @@ def build(path):
     F.append(Paragraph("3. Onde ficam os arquivos (e como apontar para eles)",
                        st["h2"]))
     F.append(Paragraph(
-        "O passo 1 (converter DICOM) precisa saber em que pasta estão os exames. "
-        "Por padrão ele procura na pasta <b>Patient Files</b>, ao lado do "
-        "projeto, com <b>um exame por subpasta</b>:", st["body"]))
+        "O mesmo pipeline atende <b>mais de um estudo</b> (CBR e COGAGING). Ao "
+        "abrir, o menu pergunta qual estudo você vai processar (o item <b>P</b> "
+        "troca depois). Cada estudo tem sua pasta dentro de <b>projects/</b>. "
+        "No CBR, que chega em DICOM, o passo 1 precisa saber em que pasta estão "
+        "os exames. Por padrão ele procura na pasta <b>Patient Files</b> do "
+        "estudo, com <b>um exame por subpasta</b>. No COGAGING, que já chega em "
+        "BIDS, o passo 1 importa a pasta <b>sourcedata/received</b> do estudo e "
+        "já inclui os passos 2 a 4:", st["body"]))
     F.append(Preformatted(
         "Pipeline Neuroimagem/          (a pasta do projeto)\n"
-        "  |- Patient Files/            <-- AQUI vao os exames (local padrao)\n"
-        "  |    |- CBR-003/             (um exame = uma pasta)\n"
-        "  |    |- CBR-003.3/           (visita de retorno do mesmo paciente)\n"
-        "  |    |- CBR-052/\n"
-        "  |    \\- ... (uma pasta por exame)\n"
         "  |- code/                     (os programas do pipeline)\n"
         "  |- Pipeline_Alunos/          (esta pasta: o menu do aluno)\n"
         "  |    \\- iniciar.command\n"
-        "  \\- bids/                     <-- resultados (os passos criam sozinhos)\n"
-        "       \\- sourcedata/conversion/   (saida crua do passo 1)",
+        "  \\- projects/\n"
+        "       |- CBR/\n"
+        "       |    |- Patient Files/  <-- AQUI vao os exames (local padrao)\n"
+        "       |    |    |- CBR-003/   (um exame = uma pasta)\n"
+        "       |    |    |- CBR-003.3/ (visita de retorno do mesmo paciente)\n"
+        "       |    |    \\- ...\n"
+        "       |    \\- bids/          <-- resultados (os passos criam sozinhos)\n"
+        "       \\- COGAGING/\n"
+        "            |- sourcedata/received/  <-- BIDS entregue (nao mexer)\n"
+        "            \\- bids/          <-- resultados",
         st["mono"]))
     F.append(Paragraph(
         "Se os seus dados estiverem em <b>outro lugar</b> (outro HD, pen-drive, "
@@ -275,7 +285,7 @@ def build(path):
     F.append(pointing_table(st))
     F.append(Paragraph(
         "Padrão de qualidade e reprodutibilidade: a pasta que você confirmar "
-        "fica guardada em <b>local_dos_dados.txt</b>, e os resultados vão sempre "
+        "fica guardada em <b>local_dos_dados_&lt;ESTUDO&gt;.txt</b>, e os resultados vão sempre "
         "para a mesma pasta <b>bids/</b>. Assim, qualquer pessoa que "
         "repita os passos com a mesma entrada obtém a mesma saída — e fica "
         "registrado de onde os dados vieram.", st["rule"]))

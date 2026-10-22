@@ -146,7 +146,7 @@ def build_scanner_derived(rows, output_dir, deriv_dir):
               f"{row['category']}/{stem}.nii.gz")
 
     write_json(os.path.join(deriv_dir, "dataset_description.json"), {
-        "Name": "CBR / NEUROCOVID scanner-derived maps",
+        "Name": f"{paths.PROJECT['title']} scanner-derived maps",
         "BIDSVersion": BIDS_VERSION,
         "DatasetType": "derivative",
         "GeneratedBy": [{
