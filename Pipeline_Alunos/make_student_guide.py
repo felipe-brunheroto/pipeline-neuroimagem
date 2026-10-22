@@ -75,13 +75,13 @@ def steps_table(st):
          "Confere se as ferramentas estão instaladas. Não muda nada."],
         ["1", "Converter DICOM em NIfTI",
          "Lê os exames da pasta de dados confirmada (seção 3) e cria as imagens "
-         ".nii.gz organizadas em BIDS_output/, com provenance.csv e "
-         "validation_report.csv. Os DICOM originais não são tocados."],
+         ".nii.gz organizadas em bids/sourcedata/conversion/, com provenance.csv "
+         "e validation_report.csv. Os DICOM originais não são tocados."],
         ["2", "Desidentificar",
          "Remove identificadores dos arquivos .json. Só depois disto os dados "
          "estão desidentificados."],
         ["3", "Remoção facial (defacing)",
-         "Cria cópias sem rosto em BIDS_output/derivatives/defaced/. "
+         "Cria cópias sem rosto em bids/derivatives/defaced/. "
          "Mantém os originais. Precisa do FreeSurfer."],
         ["4", "Montar o BIDS",
          "Gera a pasta bids/ (formato padrão FAIR), só com as anatômicas."],
@@ -169,8 +169,10 @@ def faq_table(st):
          "Não. Tudo é relativo à pasta do projeto, e o item D reaponta os dados "
          "onde estiverem. Só o local salvo (local_dos_dados.txt) é por máquina."],
         ["Onde ficam os resultados?",
-         "Dentro do projeto: BIDS_output/ (passos 1–3), bids/ (passo 4) e "
-         "derivatives/ (passos 5–6). Os DICOM originais nunca são alterados."],
+         "Tudo dentro de uma única pasta bids/: a conversão crua em "
+         "bids/sourcedata/conversion/ (passos 1–3), o BIDS organizado em "
+         "bids/sub-* (passo 4) e as análises em bids/derivatives/ (passos 5–6). "
+         "Os DICOM originais nunca são alterados."],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in r] for i, r in enumerate(rows)]
@@ -244,9 +246,11 @@ def build(path):
         "  |    |- CBR-003.3/           (visita de retorno do mesmo paciente)\n"
         "  |    |- CBR-052/\n"
         "  |    \\- ... (uma pasta por exame)\n"
+        "  |- code/                     (os programas do pipeline)\n"
         "  |- Pipeline_Alunos/          (esta pasta: o menu do aluno)\n"
         "  |    \\- iniciar.command\n"
-        "  \\- BIDS_output/              <-- resultados (o passo 1 cria sozinho)",
+        "  \\- bids/                     <-- resultados (os passos criam sozinhos)\n"
+        "       \\- sourcedata/conversion/   (saida crua do passo 1)",
         st["mono"]))
     F.append(Paragraph(
         "Se os seus dados estiverem em <b>outro lugar</b> (outro HD, pen-drive, "
@@ -267,7 +271,7 @@ def build(path):
     F.append(Paragraph(
         "Padrão de qualidade e reprodutibilidade: a pasta que você confirmar "
         "fica guardada em <b>local_dos_dados.txt</b>, e os resultados vão sempre "
-        "para a mesma pasta <b>BIDS_output/</b>. Assim, qualquer pessoa que "
+        "para a mesma pasta <b>bids/</b>. Assim, qualquer pessoa que "
         "repita os passos com a mesma entrada obtém a mesma saída — e fica "
         "registrado de onde os dados vieram.", st["rule"]))
 

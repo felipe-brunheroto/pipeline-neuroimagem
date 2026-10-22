@@ -4,41 +4,48 @@ make_bids.py
 
 PURPOSE
 -------
-Turn the human-readable `BIDS_output/` tree into a SEPARATE, validator-clean
-BIDS dataset under `bids/`, so the data is FAIR (Findable, Accessible,
-Interoperable, Reusable) and can be fed to BIDS-apps (MRIQC, fMRIPrep/sMRIPrep,
-FastSurfer BIDS mode, etc.).
+Turn the human-readable working/conversion tree (`bids/sourcedata/conversion/`)
+into the validator-clean, FAIR raw BIDS that lives at the `bids/` root, so the
+data can be fed to BIDS-apps (MRIQC, fMRIPrep/sMRIPrep, FastSurfer BIDS mode,
+etc.) and uploaded to an open-science platform (OpenNeuro).
 
-WHY A SEPARATE TREE (not renaming in place)
--------------------------------------------
-  * `BIDS_output/` is never modified -> originals stay retrievable and keep
-    their descriptive scanner names for human comprehension.
-  * `bids/` is regenerated from scratch by this script -> fully reproducible.
+WHY KEEP THE CONVERSION TREE SEPARATE (not renaming in place)
+-------------------------------------------------------------
+  * `bids/sourcedata/conversion/` is never modified -> the conversion stays
+    retrievable and keeps its descriptive scanner names for human comprehension.
+  * The raw `bids/sub-*` imaging is regenerated from it -> fully reproducible.
   * The scanner protocol name is preserved in the BIDS `acq-` entity, so nothing
     is lost: e.g. `t1_mprage_sag_p2_iso` -> `..._acq-t1mpragesagp2iso_T1w.nii.gz`.
 
 SCOPE (deliberately limited, and documented)
 --------------------------------------------
-Only the ANATOMICAL scans are curated to BIDS for now (T1w / T2w / FLAIR) - that
+Only the ANATOMICAL scans are curated to raw BIDS here (T1w / T2w / FLAIR) - that
 is what the structural analysis needs and what BIDS-apps validate cleanly. The
-diffusion (incl. derived TRACEW/ADC), fieldmap, ASL/perfusion and SWI series
-need their own BIDS curation (ASL in particular requires aslcontext.tsv,
-fieldmaps need `IntendedFor`, etc.) and are intentionally left in `BIDS_output/`
-until curated, rather than emitting invalid names. This is stated in the
-generated README and dataset_description.json.
+diffusion (incl. derived TRACEW/ADC), fieldmap, ASL/perfusion and SWI series are
+curated by make_derivatives.py into `derivatives/` and `sourcedata/` (ASL needs
+aslcontext.tsv, fieldmaps need `IntendedFor`, etc.), rather than emitting invalid
+names. This is stated in the generated README and dataset_description.json.
+
+RE-RUN SAFETY
+-------------
+Re-running rebuilds ONLY the raw `bids/sub-*` imaging it owns (and its own
+`sourcedata/func/`). It deliberately leaves `sourcedata/conversion`,
+`sourcedata/asl|fmap|unknown` and everything under `derivatives/` (FreeSurfer,
+defaced, scanner-derived) untouched, so adding a subject never destroys work
+from later pipeline steps.
 
 INPUTS / OUTPUTS
 ----------------
-Reads `BIDS_output/provenance.csv` (the source of truth linking each NIfTI to
-its series + category). Writes a BIDS dataset to `bids/`:
+Reads `bids/sourcedata/conversion/provenance.csv` (the source of truth linking
+each NIfTI to its series + category). Writes the raw BIDS at the `bids/` root:
     dataset_description.json, README, CHANGES, .bidsignore,
     participants.tsv (+ .json), sub-*/sub-*_sessions.tsv (+ sessions.json),
     sub-*/ses-*/anat/sub-*_ses-*_acq-*_{T1w,T2w,FLAIR}.nii.gz (+ .json)
 
 HOW TO RUN
 ----------
-    python make_bids.py                 # BIDS_output -> bids, both next to script
-    python make_bids.py /path/to/BIDS_output /path/to/bids
+    python code/make_bids.py            # conversion -> bids (defaults from paths.py)
+    python code/make_bids.py /path/to/conversion /path/to/bids
 """
 
 import os
@@ -46,9 +53,12 @@ import re
 import csv
 import sys
 import json
+import glob
 import shutil
 from datetime import datetime
 from pathlib import Path
+
+import paths
 
 
 BIDS_VERSION = "1.9.0"
@@ -209,11 +219,18 @@ def build_dataset(output_dir, bids_dir):
               "nothing to do.")
         return
 
-    # Fresh, deterministic output: clear any previous bids/ imaging so a re-run
-    # never leaves stale files. (We rebuild every file below.)
-    if os.path.isdir(bids_dir):
-        shutil.rmtree(bids_dir)
+    # Fresh, deterministic output -- but SCOPED. We rebuild only the raw imaging
+    # this script owns: the `sub-*` subject folders and our own `sourcedata/func/`.
+    # We MUST NOT wipe the whole bids/ root, because it also holds work produced by
+    # later steps -- sourcedata/conversion (our own input!), sourcedata/asl|fmap|
+    # unknown, and everything under derivatives/ (scanner-derived, defaced,
+    # freesurfer). A full rmtree here would silently destroy hours of recon every
+    # time a subject is added. The top-level metadata files are overwritten below.
     os.makedirs(bids_dir, exist_ok=True)
+    for sub_dir in glob.glob(os.path.join(bids_dir, "sub-*")):
+        if os.path.isdir(sub_dir):
+            shutil.rmtree(sub_dir)
+    shutil.rmtree(os.path.join(bids_dir, "sourcedata", "func"), ignore_errors=True)
 
     subjects = {}              # participant_id -> set(session_label)
     n_copied = 0
@@ -429,11 +446,12 @@ def build_dataset(output_dir, bids_dir):
 
 
 def main():
-    here = Path(__file__).resolve().parent
-    output_dir = sys.argv[1] if len(sys.argv) > 1 else str(here / "BIDS_output")
-    bids_dir = sys.argv[2] if len(sys.argv) > 2 else str(here / "bids")
+    output_dir = sys.argv[1] if len(sys.argv) > 1 else str(paths.CONVERSION_DIR)
+    bids_dir = sys.argv[2] if len(sys.argv) > 2 else str(paths.BIDS_ROOT)
     if not os.path.isdir(output_dir):
         print(f"ERROR: input folder does not exist: {output_dir}")
+        print("  Run dicom_to_bids.py first (it writes the conversion tree under")
+        print(f"  {paths.CONVERSION_DIR}).")
         sys.exit(1)
     build_dataset(output_dir, bids_dir)
 

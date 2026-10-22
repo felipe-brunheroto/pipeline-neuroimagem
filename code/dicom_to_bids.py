@@ -73,22 +73,24 @@ except ImportError:
 # the input folder so data is never misdirected on the first run.
 import series_classifier as sc
 import setup_workspace
+import paths
 
 
 # ============================================================================
 # 1. CONFIGURATION  -  edit these two paths for your computer if you like.
 # ============================================================================
 # INPUT_DIR  : the folder that CONTAINS your subject folders (e.g. CBR-003).
-# OUTPUT_DIR : where the converted, organized results will be written.
-#              It will be created if it does not exist. It is kept SEPARATE
-#              from the input so your originals are never touched.
+# OUTPUT_DIR : where the converted, organized results will be written -- the
+#              working/pre-BIDS "conversion" tree, kept under the dataset's
+#              sourcedata/ (see paths.py). It is SEPARATE from the input so your
+#              originals are never touched.
 #
-# The defaults are computed RELATIVE to this script's own folder, so the
-# pipeline runs as-is on any machine (this Mac, a Windows box, etc.) without
-# editing paths. You can still override both on the command line (see below).
+# The defaults come from paths.py (the single source of truth for the project
+# layout), so the pipeline runs as-is on any machine without editing paths. You
+# can still override both on the command line (see below).
 _HERE = Path(__file__).resolve().parent
-INPUT_DIR  = str(_HERE / "Patient Files")   # subject folders live in here
-OUTPUT_DIR = str(_HERE / "BIDS_output")     # results are written here
+INPUT_DIR  = str(paths.PATIENT_FILES)    # subject folders live in here
+OUTPUT_DIR = str(paths.CONVERSION_DIR)   # results are written here
 
 
 # ============================================================================
@@ -555,8 +557,9 @@ def main():
 
             if category == "unknown":
                 log(f"    [unknown] {nifti_path.name}: no rule matched "
-                    f"(series {number}: {description!r}) -> sourcedata/unknown/",
-                    log_lines)
+                    f"(series {number}: {description!r}) -> quarantined in "
+                    "unknown/ (promoted to bids/sourcedata/unknown/ by "
+                    "make_derivatives.py)", log_lines)
                 unknown_rows.append({
                     "subject": subject_label,
                     "session": session_label,

@@ -30,13 +30,16 @@ honest, transparent naming -- and never inventing values:
         Any series no rule could classify, copied verbatim with a README pointing
         to the unknown-series report so they can be taught via series_map.csv.
 
-It reads BIDS_output/provenance.csv (written by dicom_to_bids.py) and never
-touches the original DICOMs.
+It reads bids/sourcedata/conversion/provenance.csv (written by dicom_to_bids.py)
+and never touches the original DICOMs. Re-runs are scoped: only the subtrees this
+script owns (derivatives/scanner-derived + sourcedata/asl|fmap|unknown) are
+rebuilt; the raw sub-*, the conversion source, and the FreeSurfer/defaced
+derivatives are left untouched.
 
 HOW TO RUN
 ----------
-    python make_derivatives.py                     # BIDS_output -> bids
-    python make_derivatives.py /path/BIDS_output /path/bids
+    python code/make_derivatives.py                # conversion -> bids
+    python code/make_derivatives.py /path/conversion /path/bids
 """
 
 import os
@@ -52,6 +55,7 @@ from pathlib import Path
 # de-identifying sidecar copy, JSON writer, identifier list). Importing the
 # module is side-effect free (its main() only runs under __main__).
 import make_bids as mb
+import paths
 
 BIDS_VERSION = mb.BIDS_VERSION
 
@@ -152,7 +156,8 @@ def build_scanner_derived(rows, output_dir, deriv_dir):
                            "maps), copied and renamed with BIDS desc- entities. "
                            "These are NOT raw acquisitions.",
         }],
-        "SourceDatasets": [{"Description": "Project BIDS_output working tree."}],
+        "SourceDatasets": [{"Description": "Project conversion tree "
+                            "(bids/sourcedata/conversion)."}],
     })
     return n
 
@@ -360,15 +365,30 @@ def build_unknown_sourcedata(rows, output_dir, bids_dir):
     return n
 
 
+def _scoped_clean(bids_dir):
+    """Remove only the subtrees THIS script owns, so a re-run is deterministic
+    without disturbing make_bids' raw sub-*, the FreeSurfer/defaced derivatives,
+    or the conversion source. Safe if the folders do not exist yet."""
+    import glob
+    for sub_dir in glob.glob(os.path.join(bids_dir, "derivatives",
+                                          "scanner-derived", "sub-*")):
+        if os.path.isdir(sub_dir):
+            shutil.rmtree(sub_dir)
+    for name in ("asl", "fmap", "unknown"):
+        shutil.rmtree(os.path.join(bids_dir, "sourcedata", name),
+                      ignore_errors=True)
+
+
 def main():
-    here = Path(__file__).resolve().parent
-    output_dir = sys.argv[1] if len(sys.argv) > 1 else str(here / "BIDS_output")
-    bids_dir = sys.argv[2] if len(sys.argv) > 2 else str(here / "bids")
+    output_dir = sys.argv[1] if len(sys.argv) > 1 else str(paths.CONVERSION_DIR)
+    bids_dir = sys.argv[2] if len(sys.argv) > 2 else str(paths.BIDS_ROOT)
     if not os.path.isdir(output_dir):
         print(f"ERROR: input folder does not exist: {output_dir}")
+        print(f"  Run dicom_to_bids.py first (writes {paths.CONVERSION_DIR}).")
         sys.exit(1)
 
     rows = mb.load_provenance(output_dir)
+    _scoped_clean(bids_dir)
     deriv_dir = os.path.join(bids_dir, "derivatives", "scanner-derived")
 
     print("=" * 70)

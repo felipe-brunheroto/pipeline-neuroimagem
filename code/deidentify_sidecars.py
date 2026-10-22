@@ -27,8 +27,8 @@ WHAT IS REMOVED (identifying)            WHAT IS KEPT (scientifically useful,
 
 HOW TO RUN
 ----------
-    python deidentify_sidecars.py
-    python deidentify_sidecars.py "C:\\path\\to\\BIDS_output"
+    python code/deidentify_sidecars.py
+    python code/deidentify_sidecars.py "/path/to/conversion"
 """
 
 import os
@@ -36,10 +36,11 @@ import sys
 import json
 from datetime import datetime
 
-# Default to the BIDS_output folder next to this script, so it runs as-is on any
-# machine. Override by passing a path on the command line (see module docstring).
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "BIDS_output")
+import paths
+
+# Default to the working/conversion tree (bids/sourcedata/conversion). Override
+# by passing a path on the command line (see module docstring).
+OUTPUT_DIR = str(paths.CONVERSION_DIR)
 
 # Fields removed per the DICOM Basic Confidentiality Profile + CLAUDE.md rule 3.
 FIELDS_TO_REMOVE = [

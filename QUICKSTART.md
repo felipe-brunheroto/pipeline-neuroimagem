@@ -28,24 +28,27 @@ python3 -m pip install -r requirements.txt
 export FREESURFER_HOME=/Applications/freesurfer/8.0.0   # adjust to your install
 source $FREESURFER_HOME/SetUpFreeSurfer.sh
 
-python3 check_environment.py        # should say GOOD TO GO
+python3 code/check_environment.py   # should say GOOD TO GO
 ```
 
-**1. Build the BIDS tree** (after `dicom_to_bids.py` + `deidentify_sidecars.py`)
+(All scripts live in `code/`; run them from the project root. Everything lands
+under one `bids/` root — see `STRUCTURE.md`.)
+
+**1. Build the BIDS tree** (after `code/dicom_to_bids.py` + `code/deidentify_sidecars.py`)
 ```bash
-python3 make_bids.py            # raw anat (+func) -> bids/
-python3 make_derivatives.py     # scanner-derived maps + ASL/fmap sourcedata
-python3 run_recon_long.py --dry-run   # preview the recon plan (no FreeSurfer)
+python3 code/make_bids.py            # raw anat (+func) -> bids/sub-*
+python3 code/make_derivatives.py     # scanner-derived maps + ASL/fmap sourcedata
+python3 code/run_recon_long.py --dry-run   # preview the recon plan (no FreeSurfer)
 ```
 
 **2. Deface the anatomicals** (reads `bids/`, writes `bids/derivatives/defaced/`, keeps originals)
 ```bash
-python3 deface_anat.py
+python3 code/deface_anat.py
 ```
 
 **3. Run the FreeSurfer longitudinal stream** (cross → within-subject base → long)
 ```bash
-python3 run_recon_long.py --input bids/derivatives/defaced \
+python3 code/run_recon_long.py --input bids/derivatives/defaced \
     --jobs 4 --threads 4
 ```
 Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative).
@@ -56,7 +59,7 @@ Completed runs are skipped automatically; per-run logs land in
 **4. QC, then extract metrics**
 ```bash
 freeview ...                          # visual surface check; note the Euler number
-python3 extract_fs_stats.py           # -> tidy tables in bids/derivatives/freesurfer/stats/
+python3 code/extract_fs_stats.py      # -> tidy tables in bids/derivatives/freesurfer/stats/
 ```
 
 ---

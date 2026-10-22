@@ -5,7 +5,8 @@ passos.py — Menu guiado (em portugues) do pipeline CBR para alunos.
 
 NAO e preciso decorar comandos: este menu explica cada etapa em portugues,
 pergunta se voce quer continuar e roda o passo para voce. Os programas "de
-verdade" ficam na pasta do projeto (um nivel acima desta) e nao sao alterados.
+verdade" ficam na pasta "code" do projeto (um nivel acima desta) e nao sao
+alterados.
 
 ONDE ESTAO OS DADOS? O passo 1 (converter DICOM) precisa saber em que pasta
 estao os exames. Por padrao ele procura na pasta "Patient Files", ao lado do
@@ -78,8 +79,9 @@ PASSOS = [
      True),
 ]
 
-# Apenas o passo 1 (conversao) precisa saber onde estao os DICOM. Os demais
-# leem de BIDS_output/ e bids/ (dentro do projeto), entao nao recebem caminho.
+# Apenas o passo 1 (conversao) precisa saber onde estao os DICOM. Os demais leem
+# de bids/ (a conversao fica em bids/sourcedata/conversion), entao nao recebem
+# caminho.
 PASSO_USA_PASTA_DADOS = "dicom_to_bids.py"
 
 
@@ -345,7 +347,7 @@ def rodar_passo(num):
         print("  Opcao invalida. Tente de novo.")
         return
     _num, titulo, script, exp, precisa_fs = passo
-    caminho = RAIZ / script
+    caminho = RAIZ / "code" / script
     print("\n" + "-" * 68)
     print(f"  PASSO {num}: {titulo}")
     print("-" * 68)

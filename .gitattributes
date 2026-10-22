@@ -11,9 +11,12 @@
 #      git archive --format=zip -o ~/Desktop/pipeline_cbr.zip HEAD
 # =====================================================================
 
+# Patterns are bare filenames, which match at ANY depth, so they keep working
+# now that the scripts live under code/ (e.g. this matches code/make_report.py).
 CLAUDE.md              export-ignore
 README.md              export-ignore
 QUICKSTART.md          export-ignore
+STRUCTURE.md           export-ignore
 scan_download.sh       export-ignore
 make_report.py         export-ignore
 make_options_report.py export-ignore

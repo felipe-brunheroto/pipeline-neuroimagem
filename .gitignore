@@ -10,20 +10,23 @@ Patient Files/
 *.dcm
 DICOMDIR
 
-# All converted / derived imaging output (NIfTI, sidecars, reports).
-# The glob also covers timestamped backups like 'BIDS_output.prev-YYYYMMDD-...'.
-BIDS_output/
-BIDS_output*/
-# Curated BIDS-valid dataset built by make_bids.py (patient-derived imaging).
+# The single BIDS dataset root (patient-derived imaging). This now holds
+# EVERYTHING: raw sub-*, the working conversion tree (bids/sourcedata/conversion,
+# formerly BIDS_output/), the sourcedata scaffolds, and all derivatives
+# (scanner-derived, defaced, FreeSurfer recon). One rule covers it all.
 bids/
+# Belt-and-braces in case an older run still writes the legacy top-level names.
+BIDS_output*/
+freesurfer_subjects/
 *.nii
 *.nii.gz
-
-# FreeSurfer recon output (patient-derived surfaces/volumes/stats).
-freesurfer_subjects/
 *.mgz
 
-# Generated deliverables (PDF + handoff zip). Rebuilt by make_report.py / git archive.
+# Timestamped backups of previous runs (patient-derived; kept on this machine).
+archive/
+
+# Generated deliverables (PDF + handoff/export bundles). Rebuilt by the
+# make_report.py scripts / export_openneuro.py / git archive.
 deliverable/
 
 # Documents that may contain de-identified-but-sensitive study narrative

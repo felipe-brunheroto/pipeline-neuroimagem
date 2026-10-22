@@ -55,6 +55,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import paths
+
 # BIDS version declared in the derivatives dataset_description.json.
 BIDS_VERSION = "1.9.0"
 
@@ -210,9 +212,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Deface anatomical scans (T1/T2/FLAIR) with FreeSurfer mideface.")
     parser.add_argument("output_dir", nargs="?",
-                        default=str(Path(__file__).resolve().parent / "bids"),
+                        default=str(paths.BIDS_ROOT),
                         help="BIDS dataset root to read raw anat from and write "
-                             "derivatives/defaced/ into (default: ./bids).")
+                             "derivatives/defaced/ into (default: the project's "
+                             "bids/ root).")
     parser.add_argument("--dry-run", action="store_true",
                         help="List what would be defaced; run nothing.")
     parser.add_argument("--force", action="store_true",

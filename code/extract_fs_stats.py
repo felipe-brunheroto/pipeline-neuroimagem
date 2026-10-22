@@ -33,6 +33,8 @@ import argparse
 import subprocess
 from pathlib import Path
 
+import paths
+
 
 def find_subjects(subjects_dir):
     """
@@ -77,18 +79,15 @@ def build_commands(subjects, output_dir, measures):
 
 
 def main():
-    here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(
         description="Extract tidy FreeSurfer volume/thickness tables.")
     parser.add_argument("--subjects-dir",
-                        default=os.environ.get(
-                            "SUBJECTS_DIR",
-                            str(here / "bids" / "derivatives" / "freesurfer")),
+                        default=os.environ.get("SUBJECTS_DIR",
+                                               str(paths.FREESURFER_DIR)),
                         help="FreeSurfer SUBJECTS_DIR (default: $SUBJECTS_DIR or "
-                             "./bids/derivatives/freesurfer).")
+                             "bids/derivatives/freesurfer).")
     parser.add_argument("--output-dir",
-                        default=str(here / "bids" / "derivatives" /
-                                    "freesurfer" / "stats"),
+                        default=str(paths.FREESURFER_DIR / "stats"),
                         help="Where to write the tables "
                              "(default: bids/derivatives/freesurfer/stats).")
     parser.add_argument("--measures", default="thickness,area,volume",

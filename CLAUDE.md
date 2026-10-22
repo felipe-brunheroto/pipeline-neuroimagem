@@ -6,15 +6,19 @@ FOLLOW the rules below before doing anything.
 
 ## What this project does
 Convert raw DICOM MRI data (one folder per subject, e.g. `CBR-003`) into
-NIfTI (`.nii.gz`) and organize it into a simple BIDS-like structure
-(`anat / dwi / fmap / perf / swi / misc`), with a provenance log and a
-validation report.
+NIfTI (`.nii.gz`) and organize it into a single, OpenNeuro-ready BIDS dataset
+under `bids/` (raw `sub-*`, the working conversion tree under
+`sourcedata/conversion/`, and `derivatives/`), with a provenance log and a
+validation report. See `STRUCTURE.md` for the full layout.
+
+Layout: all scripts live in `code/` and run as `python code/<script>.py`;
+`code/paths.py` is the single source of truth for where data lives.
 
 Main scripts (already written and tested):
-- `check_environment.py` — checks that Python, dcm2niix and pydicom are ready.
-- `dicom_to_bids.py`      — the full pipeline. Reads DICOMs, converts with
+- `code/check_environment.py` — checks that Python, dcm2niix and pydicom are ready.
+- `code/dicom_to_bids.py`      — the full pipeline. Reads DICOMs, converts with
                             dcm2niix, sorts outputs, writes provenance.csv and
-                            validation_report.csv into a `BIDS_output/` folder.
+                            validation_report.csv into `bids/sourcedata/conversion/`.
 
 ## SAFETY AND ETHICS RULES — do not break these
 1. **This is real patient MRI data.** It must stay on this computer.
@@ -22,7 +26,7 @@ Main scripts (already written and tested):
    website, cloud service, or chat. All processing is LOCAL only.
 2. **Never modify or delete the original DICOM files.** Treat every existing
    file in the subject folders (e.g. `CBR-003`, `CBR-053`) as read-only.
-   Only create NEW files inside `BIDS_output/`.
+   Only create NEW files inside `bids/`.
 3. **Keep outputs de-identified.** Output NIfTI/JSON/CSV must use only the
    project subject codes (e.g. `sub-CBR003`) — never patient IDs, birth dates,
    accession numbers, or institution names.
@@ -34,8 +38,8 @@ Main scripts (already written and tested):
 ## How to run the pipeline
 1. Make sure the tools are installed (Python 3, then `pip install pydicom`
    and `pip install dcm2niix`).
-2. Run `python check_environment.py` and confirm it says "GOOD TO GO".
-3. Run `python dicom_to_bids.py` (defaults read this folder and write to
-   `BIDS_output/`).
-4. Review `BIDS_output/validation_report.csv` — any row marked `MISMATCH`
-   should be checked before trusting that scan.
+2. Run `python code/check_environment.py` and confirm it says "GOOD TO GO".
+3. Run `python code/dicom_to_bids.py` (defaults read `Patient Files/` and write
+   to `bids/sourcedata/conversion/`).
+4. Review `bids/sourcedata/conversion/validation_report.csv` — any row marked
+   `MISMATCH` should be checked before trusting that scan.

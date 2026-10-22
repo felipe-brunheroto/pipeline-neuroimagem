@@ -230,7 +230,7 @@ def main():
             state = setup_workspace.diagnose_data_folder(input_dir)
             if state != "ok":
                 print("\n  (Add your exam folders there before running"
-                      " dicom_to_bids.py.)")
+                      " python code/dicom_to_bids.py.)")
         print()
     except Exception as error:
         # The workspace helper is a convenience; never let it break the check.

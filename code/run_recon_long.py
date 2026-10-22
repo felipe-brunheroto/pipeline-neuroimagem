@@ -29,7 +29,7 @@ keyword, the T1 (required) and optionally a FLAIR or T2 to refine the pial
 surface (`-FLAIRpial` / `-T2pial`). Keyword discovery works on BOTH the BIDS
 names (`..._T1w.nii.gz`) and the defaced/descriptive names (`..._t1_mprage...`),
 so you can point --input at the DEFACED tree for a privacy-preserving recon:
-    python run_recon_long.py --input BIDS_output/derivatives/defaced
+    python code/run_recon_long.py --input bids/derivatives/defaced
 
 EXAMPLES
 --------
@@ -45,6 +45,8 @@ import argparse
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import paths
 
 
 # Keyword rules to pick the anatomical role from a file name (FLAIR first, as a
@@ -203,17 +205,16 @@ def write_fs_dataset_description(subjects_dir):
 
 
 def main():
-    here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(
         description="FreeSurfer longitudinal recon driver (FreeSurfer 8).")
-    parser.add_argument("--input", default=str(here / "bids"),
-                        help="Anatomical root (default: ./bids).")
+    parser.add_argument("--input", default=str(paths.BIDS_ROOT),
+                        help="Anatomical root (default: the project's bids/ root; "
+                             "pass bids/derivatives/defaced for a private recon).")
     parser.add_argument("--subjects-dir",
-                        default=os.environ.get(
-                            "SUBJECTS_DIR",
-                            str(here / "bids" / "derivatives" / "freesurfer")),
+                        default=os.environ.get("SUBJECTS_DIR",
+                                               str(paths.FREESURFER_DIR)),
                         help="FreeSurfer SUBJECTS_DIR (default: $SUBJECTS_DIR or "
-                             "./bids/derivatives/freesurfer, a BIDS derivative).")
+                             "bids/derivatives/freesurfer, a BIDS derivative).")
     parser.add_argument("--pial", choices=["flair", "t2", "none"], default="flair",
                         help="Refine pial surface with FLAIR or T2 (default: flair).")
     parser.add_argument("--threads", type=int, default=4,

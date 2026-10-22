@@ -18,6 +18,8 @@ import os
 from datetime import date
 from pathlib import Path
 
+import paths
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -285,12 +287,12 @@ def build(path, stats):
         "export FREESURFER_HOME=/Applications/freesurfer/8.0.0\n"
         "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n\n"
         "# 1)  Pré-visualize o plano (não precisa do FreeSurfer para isto)\n"
-        "python3 run_recon_long.py --dry-run\n\n"
+        "python3 code/run_recon_long.py --dry-run\n\n"
         "# 2)  Remocao facial das anatomicas (gera derivatives/defaced/, mantem originais)\n"
-        "python3 deface_anat.py\n\n"
+        "python3 code/deface_anat.py\n\n"
         "# 3)  Rode o fluxo longitudinal sobre as anatomicas com remocao facial\n"
-        "python3 run_recon_long.py \\\n"
-        "        --input BIDS_output/derivatives/defaced \\\n"
+        "python3 code/run_recon_long.py \\\n"
+        "        --input bids/derivatives/defaced \\\n"
         "        --subjects-dir ~/fs_subjects --jobs 4 --threads 4\n\n"
         "# 4)  QC das superficies, depois extraia metricas para estatistica\n"
         "freeview ...                 # verificacao visual; anote o numero de Euler\n"
@@ -328,9 +330,8 @@ def build(path, stats):
 
 
 def main():
-    here = Path(__file__).resolve().parent
-    stats = load_stats(str(here / "BIDS_output"))
-    out_dir = here / "deliverable"
+    stats = load_stats(str(paths.CONVERSION_DIR))
+    out_dir = paths.DELIVERABLE_DIR
     out_dir.mkdir(exist_ok=True)
     out_path = str(out_dir / "CBR_NEUROCOVID_pipeline_overview.pdf")
     build(out_path, stats)

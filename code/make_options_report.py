@@ -24,6 +24,7 @@ from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
                                 TableStyle, HRFlowable)
 
 from make_report import build_styles, esc, bullets, ACCENT, LIGHT, GREY
+import paths
 
 
 def comparison_table(st):
@@ -126,7 +127,7 @@ def build(path):
     F.append(Paragraph("Como o MINDSETS integra (não substitui)", st["h2"]))
     F.append(bullets([
         "Mesmo T1 desfacializado entra → volumes.csv sai em "
-        "BIDS_output/derivatives/mindsets/, ao lado das saídas do FreeSurfer; "
+        "bids/derivatives/mindsets/, ao lado das saídas do FreeSurfer; "
         "ambos alimentam a mesma tabela de efeitos mistos.",
         "O FreeSurfer continua dando o que o SynthSeg não dá: espessura/superfície "
         "cortical e o fluxo longitudinal.",
@@ -156,7 +157,7 @@ def build(path):
 
 
 def main():
-    out_dir = Path(__file__).resolve().parent / "deliverable"
+    out_dir = paths.DELIVERABLE_DIR
     out_dir.mkdir(exist_ok=True)
     out_path = str(out_dir / "CBR_opcoes_pipeline_comparacao.pdf")
     build(out_path)

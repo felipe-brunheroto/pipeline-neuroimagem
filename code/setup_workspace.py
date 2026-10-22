@@ -28,8 +28,11 @@ It NEVER touches DICOM data.
 import os
 from pathlib import Path
 
-# The folder, next to this script, where subject DICOM folders should be dropped.
-_HERE = Path(__file__).resolve().parent
+import paths
+
+# The DICOM input folder lives at the PROJECT ROOT (not next to this script, which
+# now sits in code/). paths.py is the single source of truth for the layout.
+_ROOT = paths.PROJECT_ROOT
 DEFAULT_INPUT_NAME = "Patient Files"
 PLACEHOLDER_NAME = "READ_ME_DROP_DICOMS_HERE.txt"
 
@@ -115,7 +118,7 @@ def ensure_input_folder(root=None, input_name=DEFAULT_INPUT_NAME):
     This is safe to call every run: if the folder already exists we leave it and
     its contents completely alone.
     """
-    root = Path(root) if root else _HERE
+    root = Path(root) if root else _ROOT
     input_dir = root / input_name
     created = False
     if not input_dir.exists():

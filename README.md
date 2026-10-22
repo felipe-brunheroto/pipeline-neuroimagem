@@ -8,17 +8,29 @@ dataset (`bids/`) with proper derivatives and sourcedata. Unfamiliar series
 (e.g. a future BOLD project) are classified via an editable `series_map.csv`,
 and anything unrecognized is quarantined and reported rather than mis-sorted.
 
-> **Golden rule: code travels, data does not.** The scripts in this repo contain
-> no patient data and can be shared/version-controlled freely. Raw DICOMs and
-> the `BIDS_output/` folder are patient-derived and must stay on the secure
-> research machine — never on personal cloud storage (OneDrive/Dropbox/Drive).
+**Everything lives under one BIDS root, `bids/`** (raw `sub-*`, the working
+conversion tree under `sourcedata/conversion/`, and all `derivatives/`), so the
+study is one self-contained, OpenNeuro-ready folder. The pipeline **scripts live
+in `code/`** and run as `python code/<script>.py`. See **[STRUCTURE.md](STRUCTURE.md)**
+for the full layout, a step→folder map, and how to trace one patient.
+
+> **Golden rule: code travels, data does not.** The scripts in `code/` contain
+> no patient data and can be shared/version-controlled freely. Raw DICOMs and the
+> `bids/` dataset (which includes the working conversion tree) are patient-derived
+> and must stay on the secure research machine — never on personal cloud storage
+> (OneDrive/Dropbox/Drive).
 
 ---
 
 ## Files in this pipeline (safe to transfer)
 
-| File | What it is |
+All scripts live in **`code/`** (run them as `python code/<script>.py`).
+`code/paths.py` is the single source of truth for the project layout, so no
+path-editing is needed when moving the project.
+
+| File (under `code/`) | What it is |
 |------|------------|
+| `paths.py` | One place that defines the layout (`PATIENT_FILES`, `BIDS_ROOT`, `CONVERSION_DIR`, `FREESURFER_DIR`, …). Imported by the other scripts. |
 | `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed, **and creates the `Patient Files/` input folder** (with a README) on first run so data is dropped in the right place. |
 | `setup_workspace.py` | Creates/validates the `Patient Files/` drop folder and diagnoses common mistakes (pointing inside one exam, empty folder). Imported by the two above; also runnable directly. |
 | `series_classifier.py` | Shared rules that decide each series' datatype + BIDS suffix. Reads `series_map.csv` first, then built-in keywords; unrecognized → `unknown`. |
@@ -36,15 +48,17 @@ and anything unrecognized is quarantined and reported rather than mis-sorted.
 | `.gitignore` | Safety net: blocks git from ever tracking patient data. |
 | `README.md` | This file. |
 
-**Never transfer via personal/cloud means:** the `CBR-*` subject folders and the
-`BIDS_output/` folder.
+**Never transfer via personal/cloud means:** the `CBR-*` subject folders
+(`Patient Files/`) and the `bids/` dataset (it contains patient-derived imaging,
+including the working conversion tree under `sourcedata/conversion/`).
 
 ---
 
 ## Setup on a new (workplace) computer — Windows
 
 1. **Choose a local-only folder, NOT inside OneDrive/Dropbox/Google Drive.**
-   Example: `C:\Research\CBR\`. Copy the seven pipeline files above into it.
+   Example: `C:\Research\CBR\`. Copy the project into it (keep the `code/`
+   folder intact — the scripts import each other and `paths.py`).
 
 2. **Install Python 3.12** (once):
    ```powershell
@@ -62,47 +76,51 @@ and anything unrecognized is quarantined and reported rather than mis-sorted.
 
 4. **Verify the environment:**
    ```powershell
-   python check_environment.py
+   python code\check_environment.py
    ```
    Confirm it prints **GOOD TO GO**.
 
 5. **Place the patient DICOM data locally**, one folder per subject
-   (e.g. `C:\Research\CBR\CBR-003\`), transferred by an approved institutional
-   method (encrypted drive / secure share) — not personal cloud.
+   (e.g. `C:\Research\CBR\Patient Files\CBR-003\`), transferred by an approved
+   institutional method (encrypted drive / secure share) — not personal cloud.
 
-6. **Edit paths if needed.** Open `dicom_to_bids.py` and
-   `deidentify_sidecars.py` and update the `INPUT_DIR` / `OUTPUT_DIR` /
-   `OUTPUT_DIR` constants near the top to your local folder. (Or pass paths on
-   the command line — see below.)
+6. **No path-editing needed.** Defaults come from `code/paths.py`
+   (`Patient Files/` in, `bids/` out). To use a different location, pass paths on
+   the command line — see below.
 
 ---
 
 ## Running the pipeline
 
-Paths now default to `Patient Files/` (input) and `BIDS_output/` (output) next
-to the scripts, so on the primary machine you can run them with no arguments.
-Explicit paths still work as an override:
+Paths default (via `code/paths.py`) to `Patient Files/` (input) and the `bids/`
+root (output; the working conversion tree lands in `bids/sourcedata/conversion/`),
+so on the primary machine you can run them with no arguments. Run from the project
+root. Explicit paths still work as an override:
 
 ```bash
-# 1. Convert + organize + validate (also writes reports/unknown_series_report.csv)
-python dicom_to_bids.py
+# 1. Convert + organize + validate -> bids/sourcedata/conversion/
+#    (also writes reports/unknown_series_report.csv there)
+python code/dicom_to_bids.py
 
 # 2. De-identify the JSON sidecars (site/scanner fields)
-python deidentify_sidecars.py
+python code/deidentify_sidecars.py
 
-# 3. Build the FAIR, validator-clean raw BIDS dataset (anat + func) under bids/.
-python make_bids.py
+# 3. Build the FAIR, validator-clean raw BIDS dataset (anat + func) -> bids/sub-*
+python code/make_bids.py
 
 # 4. Build derivatives + sourcedata: scanner-derived maps (ADC/TRACEW/SWI/
 #    perfusion) under bids/derivatives/scanner-derived/, and ASL + phase-only
 #    field map scaffolds under bids/sourcedata/.
-python make_derivatives.py
+python code/make_derivatives.py
 
 # 5. Deface the anatomicals (T1/T2/FLAIR) — needs FreeSurfer 7.3+ (mideface).
 #    Reads bids/, writes bids/derivatives/defaced/ with desc-defaced names.
-python deface_anat.py --dry-run    # preview (no FreeSurfer needed)
-python deface_anat.py              # actually deface
+python code/deface_anat.py --dry-run    # preview (no FreeSurfer needed)
+python code/deface_anat.py              # actually deface
 ```
+
+Re-running steps 3–4 is safe: each rebuilds only the subtree it owns and leaves
+the FreeSurfer recon, defaced copies, and conversion source untouched.
 
 **New project / unfamiliar series (e.g. BOLD):** the pipeline never crashes on
 data it doesn't recognize. Any series no rule matches is converted, parked in
@@ -138,8 +156,8 @@ Workflow:
    export FREESURFER_HOME=/Applications/freesurfer/8.0.0
    source $FREESURFER_HOME/SetUpFreeSurfer.sh
 
-   python run_recon_long.py --dry-run                       # preview the plan
-   python run_recon_long.py --input bids/derivatives/defaced \
+   python code/run_recon_long.py --dry-run                  # preview the plan
+   python code/run_recon_long.py --input bids/derivatives/defaced \
        --jobs 4 --threads 4                                 # cross -> base -> long
    ```
    Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative);
@@ -147,11 +165,13 @@ Workflow:
    ~8 GB RAM + `threads` cores per job; `--jobs 4` is comfortable on 64 GB.
 3. **QC** the surfaces (freeview; check the Euler number) before trusting any
    subject.
-4. **Extract metrics** with `asegstats2table` / `aparcstats2table`, then fit
-   mixed-effects models (region ~ clinical_status × time + (1│subject)). With
-   N=4 this is a pilot — favour hypothesis-driven ROIs over whole-brain vertexwise.
+4. **Extract metrics** with `python code/extract_fs_stats.py` (wraps
+   `asegstats2table` / `aparcstats2table` into `bids/derivatives/freesurfer/stats/`),
+   then fit mixed-effects models (region ~ clinical_status × time + (1│subject)).
+   With N=4 this is a pilot — favour hypothesis-driven ROIs over whole-brain
+   vertexwise.
 
-Then review, in `BIDS_output/`:
+Then review, in `bids/sourcedata/conversion/`:
 - `validation_report.csv` — any `MISMATCH` row should be checked before trusting that scan.
 - `provenance.csv` — links each NIfTI back to its DICOM series.
 - `deidentification_log.txt` — what the de-id step removed.
