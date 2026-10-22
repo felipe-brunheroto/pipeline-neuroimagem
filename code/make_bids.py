@@ -69,6 +69,7 @@ BIDS_VERSION = "1.9.0"
 IDENTIFIER_FIELDS = [
     "InstitutionName", "InstitutionAddress", "InstitutionalDepartmentName",
     "StationName", "DeviceSerialNumber", "ProcedureStepDescription",
+    "StudyDescription",
     "PatientName", "PatientID", "PatientBirthDate", "AccessionNumber",
 ]
 

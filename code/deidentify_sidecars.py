@@ -21,9 +21,11 @@ WHAT IS REMOVED (identifying)            WHAT IS KEPT (scientifically useful,
   InstitutionName                          Manufacturer, ManufacturersModelName
   InstitutionAddress                       MagneticFieldStrength, ImagingFrequency
   InstitutionalDepartmentName              SoftwareVersions
-  StationName                              SeriesDescription, ProtocolName, StudyDescription
+  StationName                              SeriesDescription, ProtocolName
   DeviceSerialNumber                       all TR/TE/flip-angle/timing/coil params
   ProcedureStepDescription                 everything else
+  StudyDescription (free text typed at the scanner; here it carries the
+                    hospital name, e.g. "CRANIO^PESQUISA <hospital> ...")
 
 HOW TO RUN
 ----------
@@ -50,6 +52,7 @@ FIELDS_TO_REMOVE = [
     "StationName",
     "DeviceSerialNumber",
     "ProcedureStepDescription",
+    "StudyDescription",
 ]
 
 
