@@ -12,15 +12,20 @@ QUAL ESTUDO? O mesmo pipeline atende mais de um estudo (ex.: CBR e COGAGING).
 Cada um tem sua pasta em "projects/". O menu pergunta o estudo ao abrir (item
 P troca) e lembra a escolha em projeto_atual.txt.
 
-ONDE ESTAO OS DADOS? Nos estudos que chegam em DICOM (ex.: CBR), o passo 1
+ONDE ESTAO OS DADOS? Nos estudos que chegam em DICOM (CBR e COGAGING), o passo 1
 precisa saber em que pasta estao os exames. Por padrao ele procura na pasta
 "Patient Files" do estudo (projects/<ESTUDO>/Patient Files). Se os seus dados
 estiverem em OUTRO lugar (outro HD, pen-drive, Downloads, etc.), use o item
 "D" do menu: voce pode ARRASTAR a pasta para a janela do Terminal e o menu
 confere se ela tem os exames antes de rodar. O local escolhido fica guardado
-em local_dos_dados_<ESTUDO>.txt para a proxima vez. Nos estudos que ja chegam
-em BIDS (ex.: COGAGING), o passo 1 importa a pasta
+em local_dos_dados_<ESTUDO>.txt para a proxima vez. Os sujeitos que ja chegam
+em BIDS (dcm2bids, no COGAGING) entram pelo item I, a partir de
 projects/<ESTUDO>/sourcedata/received.
+
+DADOS NOVOS: o responsavel os coloca na pasta inbox/ do projeto (ou usa o
+start.command); o computador leva cada um para o estudo certo pelo codigo no
+nome (CBR-003 -> CBR, GER00039_... -> COGAGING). Os dois estudos sao
+independentes: so o programa e o mesmo.
 
 O QUE PRECISA DE VOCE: as etapas longas (conversao, BIDS, FreeSurfer, SAMSEG)
 rodam sozinhas toda noite no Mac Mini (code/run_batch.py). O seu trabalho e o
@@ -298,7 +303,7 @@ def diagnosticar(pasta):
                   f"'{exames[0]}'.")
             print("      Isso costuma ser o conteudo de UM exame, nao a pasta")
             print("      com varios exames. Aponte um nivel ACIMA (a pasta que")
-            print("      tem dentro as pastas dos exames, ex.: CBR-003, CBR-052).")
+            print("      tem dentro as pastas dos exames, ex.: CBR-003, GER00039_...).")
             return "apontou_exame"
         print(f"\n  [ok] Encontrei {len(exames)} pasta(s) de exame com DICOM:")
         for nome in exames[:8]:
@@ -317,12 +322,13 @@ def diagnosticar(pasta):
               "subpasta de exame.")
         print("      Parece que voce apontou para UMA pasta de exame (ex.: "
               "CBR-003).")
-        print("      Aponte para a pasta que CONTEM as pastas CBR-xxx (um nivel "
+        print("      Aponte para a pasta que CONTEM as pastas dos exames (um nivel "
               "acima).")
         return "apontou_exame"
 
     print("\n  [x] Nao encontrei nenhum arquivo DICOM aqui dentro.")
-    print("      O esperado e uma pasta com subpastas CBR-xxx, cada uma com os")
+    print("      O esperado e uma pasta com uma subpasta por exame (CBR-003,")
+    print("      GER00039_...), cada uma com os")
     print("      arquivos do scanner. Confira se apontou para o lugar certo.")
     return "vazia"
 

@@ -8,18 +8,28 @@ dataset (`bids/`) with proper derivatives and sourcedata. Unfamiliar series
 (e.g. a future BOLD project) are classified via an editable `series_map.csv`,
 and anything unrecognized is quarantined and reported rather than mis-sorted.
 
-**One shared engine, one folder per study.** The scripts live in `code/`; each
-study keeps its data in `projects/<NAME>/` with a `project.json` describing it:
+**One shared engine, independent studies.** The scripts live in `code/`; each
+study keeps its data in `projects/<NAME>/` with a `project.json` describing it.
+The studies do not depend on each other: none inherits another's series rules,
+protocol facts, outputs, logs or QC. What belongs to which study is decided by
+the code in each name (`code_pattern` in project.json: `CBR-003…` → CBR,
+`GER00039_…` → COGAGING), so the plug-and-play front door never needs to be told.
 
 | Project | Input | Notes |
 |---|---|---|
 | `CBR` (CBR / NEUROCOVID) | DICOM (`projects/CBR/Patient Files/`) | longitudinal structural MRI, SWI, clinical DWI, multi-TI PASL in some exams |
 | `COGAGING` | DICOM from clinical CDs (`projects/COGAGING/Patient Files/`, folder names carry the code, e.g. `GER00039_...`); subjects already converted with dcm2bids enter via `import_bids.py` | multi-vendor; 3D T1w + FLAIR, 64-dir DWI, resting-state BOLD; sessions numbered by exam date; SAMSEG lesions; no defacing yet |
 
-Per-study settings live in `projects/<NAME>/project.json` (input, subject code
-pattern, session numbering, recon-all flags, which steps apply) and
+Per-study settings live in `projects/<NAME>/project.json` (input, code pattern,
+session numbering, recon-all flags, which steps apply, and facts about its own
+protocol, e.g. CBR's multi-TI PASL without M0 and phase-only field map) and
 `projects/<NAME>/series_map.csv` (that study's scanner series names, checked
-before the shared `code/series_map.csv`).
+before the shared `code/series_map.csv`, which holds no study's rules).
+
+> **New Mac, new data? Start with [QUICKSTART.md](QUICKSTART.md):** one
+> `git clone` and `start.command` set everything up, import DICOM CDs, dcm2bids
+> BIDS, finished FreeSurfer runs or an old copy of the pipeline into the right
+> study, and process them. After that, new data is just dropped in `inbox/`.
 
 Every command takes **`--project NAME`** (or set `PIPELINE_PROJECT`), e.g.
 `python code/run_recon_long.py --project COGAGING --dry-run`. Paths written as
@@ -62,7 +72,10 @@ path-editing is needed when moving the project.
 | `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**): plans + runs the longitudinal stream (cross → base → long) into `bids/derivatives/freesurfer/`. `--dry-run` needs no FreeSurfer. |
 | `extract_fs_stats.py` | Final step: wraps `asegstats2table`/`aparcstats2table` into tidy tables under `bids/derivatives/freesurfer/stats/`. `--dry-run` prints the plan. |
 | `run_batch.py` | **Unattended processing** (Mac Mini, nightly): runs every step that applies to the project, in order, only for new or unfinished work; safe to re-run at any time. Lock, per-run logs and an end-of-run summary in `projects/<NAME>/logs/batch/`. See [Unattended batch](#unattended-batch-mac-mini). |
-| `install_schedule.py` | Installs/removes the nightly launchd job (`~/Library/LaunchAgents/…plist`) that runs `run_batch.py`; `--watch` also runs it when a CD folder is added. |
+| `install_schedule.py` | Installs/removes the nightly launchd job (`~/Library/LaunchAgents/…plist`): `--all` (what `pipeline.py schedule` uses) runs every study, `--project NAME` one; `--watch` also runs it when a folder is added. |
+| `pipeline.py` | **Plug-and-play front door, all studies at once**: `import` (recognises DICOM CDs, dcm2bids `sub-*`, FreeSurfer runs and old pipeline copies anywhere in the folders given, and routes each by its study code), `run` (inbox, then every study's batch), `schedule`, `status`. |
+| `import_inputs.py` | Places one kind of item into one study (via `paths.py`): never overwrites, never deletes a source, never guesses; FreeSurfer runs are renamed to `sub-X_ses-N` and kept apart when made by another FreeSurfer version. |
+| `../start.command` | Double-click entry point: update from GitHub, `.venv`, FreeSurfer, import, process, schedule (see QUICKSTART). |
 | `qc_status.py` | The visual-QC record (`bids/derivatives/qc/qc_status.tsv`): what is finished but not reviewed, the freeview command for it, and pass/fail decisions. Used by the batch summary and the student menu. |
 | `batch_lock.py` | The machine-wide lock (an OS file lock, released even by a crashed run) that keeps two batches from overlapping. |
 | `Pipeline_Alunos/` | **Student teaching package** (Brazilian Portuguese, non-programmer-friendly): double-click `iniciar.command` → guided menu (`passos.py`) whose first items are the work that needs a person — R: last batch summary in plain Portuguese, C: visual QC in freeview with pass/fail recorded, S: teach an unknown series (validated `series_map.csv` row) — followed by the numbered steps for one-off runs; `GUIA_DO_ALUNO.pdf` walkthrough; FAIR/safety notes. Runs with no Claude account. |
@@ -270,10 +283,10 @@ order, and nothing else**, and is safe to re-run at any time:
 ```bash
 python3 code/run_batch.py --project COGAGING --dry-run   # what would run (changes nothing)
 python3 code/run_batch.py --project COGAGING             # run it now (FreeSurfer loaded)
-python3 code/install_schedule.py --project COGAGING --at 22:30           # every night
-python3 code/install_schedule.py --project CBR --at 23:30                # queues behind COGAGING
-python3 code/install_schedule.py --project COGAGING --at 22:30 --watch   # + when a CD is added
-python3 code/install_schedule.py --project COGAGING --uninstall
+python3 code/pipeline.py run                             # inbox/, then every study in turn
+python3 code/pipeline.py schedule --at 22:30             # every night, every study (one job)
+python3 code/pipeline.py schedule --at 22:30 --watch     # + when data is added
+python3 code/install_schedule.py --all --uninstall
 ```
 
 - **Steps** (those that apply per `project.json`): import (`bids_import`) →
@@ -296,7 +309,9 @@ python3 code/install_schedule.py --project COGAGING --uninstall
   subject. After `--max-attempts` failures (default 3) a recon/SAMSEG run is
   left out and listed for a person; `--retry-failed` tries again.
 - **One at a time.** A machine-wide lock (`projects/.batch.lock`) refuses a
-  second run (`--wait MINUTES` queues instead; the nightly jobs use 12 h).
+  second run (`--wait MINUTES` queues instead; the nightly job uses 12 h).
+  The studies share nothing but the machine's cores, memory and disk, which
+  is why their batches take turns.
 - **Refuses to start** when FreeSurfer is not loaded or has no license
   (`--no-freesurfer` runs only the conversion/BIDS steps), when SAMSEG would run
   on an Intel FreeSurfer under Rosetta, or with less than `--min-free-gb`

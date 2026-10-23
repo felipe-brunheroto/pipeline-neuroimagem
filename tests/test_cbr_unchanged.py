@@ -1,6 +1,8 @@
 """
 CBR outputs must not change. The same synthetic CBR exams are processed by
-  A. the pipeline as it was before run_batch.py (BASELINE commit, step by step),
+  A. the pipeline as it was before run_batch.py (BASELINE commit, step by step,
+     with CBR's settings of that commit: no projects/CBR/series_map.csv, its
+     rules then lived in the shared code/series_map.csv),
   B. the current code, step by step (the menu / README way), and
   C. run_batch.py, in two nightly runs with a CD added in between;
 and the bids/ trees are compared file by file (NIfTI compared uncompressed,
@@ -39,9 +41,10 @@ LATER = ("CBR-011", "20121010", False)
 
 
 def baseline_code(dest):
-    """The code/ folder as of BASELINE, extracted from git."""
+    """The code/ folder and CBR's settings as of BASELINE, extracted from git."""
     try:
-        data = subprocess.run(["git", "archive", BASELINE, "code"], cwd=str(s.REPO),
+        data = subprocess.run(["git", "archive", BASELINE, "code", "projects/CBR"],
+                              cwd=str(s.REPO),
                               capture_output=True, check=True).stdout
     except (subprocess.CalledProcessError, FileNotFoundError):
         pytest.skip(f"baseline commit {BASELINE} not available in this clone")
@@ -51,6 +54,17 @@ def baseline_code(dest):
         else:
             tar.extractall(dest)
     return Path(dest) / "code"
+
+
+def use_settings(projects, source):
+    """Put CBR's project.json / series_map.csv from `source` (a projects/CBR
+    folder) in place, so each run uses the settings of its own version."""
+    for name in ("project.json", "series_map.csv"):
+        dest = projects / "CBR" / name
+        if (Path(source) / name).is_file():
+            shutil.copy(Path(source) / name, dest)
+        elif dest.exists():
+            dest.unlink()
 
 
 def add_exam(projects, name, date, unknown):
@@ -115,13 +129,18 @@ def test_cbr_outputs_unchanged(cbr):
     old_code = baseline_code(tmp / "baseline")
     bids = projects / "CBR" / "bids"
 
+    use_settings(projects, tmp / "baseline" / "projects" / "CBR")
     old_out = manual_steps(projects, env, old_code)
     shutil.move(str(bids), str(tmp / "bids_A"))
+    use_settings(projects, s.REPO / "projects" / "CBR")
     new_out = manual_steps(projects, env, s.CODE)
     shutil.move(str(bids), str(tmp / "bids_B"))
 
     a, b = contents(tmp / "bids_A"), contents(tmp / "bids_B")
     assert len(a) > 50
+    # The ASL and field-map scaffolds (CBR's declared facts) are covered too.
+    assert any(k.startswith("sourcedata/asl/") and k.endswith("_asl.json") for k in a)
+    assert any(k.startswith("sourcedata/fmap/") and k.endswith("_phase.json") for k in a)
     assert diff(a, b) == []
     for (script, old), (_s, new) in zip(old_out, new_out):
         assert old == new, f"{script} printed something different"
@@ -131,8 +150,10 @@ def test_cbr_batch_matches_the_manual_steps(cbr):
     projects, env, tmp = cbr
     old_code = baseline_code(tmp / "baseline")
     bids = projects / "CBR" / "bids"
+    use_settings(projects, tmp / "baseline" / "projects" / "CBR")
     manual_steps(projects, env, old_code)
     shutil.move(str(bids), str(tmp / "bids_A"))
+    use_settings(projects, s.REPO / "projects" / "CBR")
 
     later = projects / "CBR" / "Patient Files" / LATER[0]
     shutil.move(str(later), str(tmp / "later"))       # not delivered yet

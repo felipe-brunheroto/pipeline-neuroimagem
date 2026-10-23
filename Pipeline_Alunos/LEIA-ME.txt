@@ -1,5 +1,5 @@
 ============================================================
-  PIPELINE CBR  —  PASTA DO ALUNO
+  PIPELINE DE NEUROIMAGEM (CBR e COGAGING)  —  PASTA DO ALUNO
 ============================================================
 
 Bem-vindo(a)! Você vai aprender a transformar imagens de

@@ -12,16 +12,21 @@ for one person is one `grep`/glob away.
 ## The whole project at a glance
 
 The code is shared; each study has its own folder under `projects/`, and inside
-it one BIDS root. Everything below `projects/<NAME>/` has the same shape for
+it one BIDS root. The studies are independent: nothing of one (rules, protocol
+facts, outputs, logs, QC) is used by the other, and new data is routed to its
+study by the code in its name (`CBR…` / `GER…`, project.json `code_pattern`). Everything below `projects/<NAME>/` has the same shape for
 every study.
 
 ```
 Pipeline Neuroimagem/
 ├── code/                      # shared pipeline scripts + config (paths.py, series_map.csv, …)
 ├── Pipeline_Alunos/           # student teaching package (pt-BR guided menu; asks which study)
+├── start.command              # plug and play: update, set up, import, process, schedule
+├── inbox/                     # drop box for new data (git-ignored): routed by study code
 ├── projects/
 │   ├── CBR/                   # CBR / NEUROCOVID — input: DICOM
-│   │   ├── project.json       # study settings (tracked in git)
+│   │   ├── project.json       # study settings + its protocol facts (tracked in git)
+│   │   ├── series_map.csv     # CBR scanner series rules (tracked in git)
 │   │   ├── Patient Files/     # raw DICOM input — one folder per exam. READ-ONLY, never shared.
 │   │   ├── bids/              # THE dataset for this study (see below)
 │   │   ├── logs/batch/        # run_batch.py: per-run logs + summary.md/.tsv, state.json (kept local)
@@ -58,6 +63,7 @@ bids/
     ├── scanner-derived/    # ADC, TRACEW, SWI family, perfusion maps
     ├── defaced/            # face-masked anatomicals (desc-defaced)
     ├── freesurfer/         # recon-all output (+ stats/, logs/, .failed/ = last unfinished attempt)
+    ├── freesurfer-7.4.1/   # (if any) imported runs of ANOTHER FreeSurfer version, kept apart
     ├── samseg/             # SAMSEG lesions per session + samseg_lesions.tsv
     └── qc/                 # qc_status.tsv: visual QC pass/fail per session (student menu, item C)
 ```
@@ -85,6 +91,7 @@ needed. Paths in this table are relative to `projects/<NAME>/`.
 | 7 | `extract_fs_stats.py` | `bids/derivatives/freesurfer/` | `bids/derivatives/freesurfer/stats/` |
 | 8 | `run_samseg.py` (COGAGING) | `bids/sub-*` (T1w + FLAIR) | `bids/derivatives/samseg/` + `samseg_lesions.tsv` |
 | — | `export_openneuro.py` | `bids/` | validation report + (optional) `deliverable/bids_openneuro/` |
+| P | `pipeline.py import` → `import_inputs.py` (routed by study code) | `inbox/` (moved) or folders given (copied) | `Patient Files/`, `sourcedata/received/`, `sourcedata/session_map.tsv`, `bids/derivatives/freesurfer[-<version>]/`; report in `logs/import/` |
 | B | `run_batch.py` (all of the above that apply, only what is pending) | everything above | the same outputs as the steps + `logs/batch/<run>/` (step logs, `summary.md`, `summary.tsv`), `logs/batch/state.json` |
 | — | `install_schedule.py` | — | `~/Library/LaunchAgents/org.pipeline-neuroimagem.batch.<name>.plist` (nightly `run_batch.py`) |
 | C | student menu, item C (`qc_status.py`) | `bids/derivatives/freesurfer/`, `…/samseg/` | `bids/derivatives/qc/qc_status.tsv` |

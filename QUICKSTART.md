@@ -1,93 +1,77 @@
 # START HERE — Pipeline Neuroimagem (quick guide)
 
-This bundle contains **code and documentation only — no patient data.**
+This repository contains **code and documentation only — no patient data.**
 Move DICOMs / derived imaging only by an approved institutional method
-(encrypted drive / secure share), **never** via personal cloud.
+(encrypted drive / secure share), **never** via GitHub or personal cloud.
 
-There are two machines:
-
-| Machine | Role | Scripts used |
-|---|---|---|
-| **Conversion Mac** (Felipe) | DICOM → NIfTI → de-identify → BIDS + derivatives | `dicom_to_bids.py`, `deidentify_sidecars.py`, `make_bids.py`, `make_derivatives.py` |
-| **Recon Mac** (M4 / 64 GB, FreeSurfer 8) | defacing + structural analysis | `deface_anat.py`, `run_recon_long.py`, `extract_fs_stats.py` |
-
-The full PDF (`CBR_NEUROCOVID_pipeline_overview.pdf`) is the 2-page summary to
-read first. `README.md` has the complete reference.
+One pipeline serves **two independent studies**, CBR (CBR / NEUROCOVID) and
+COGAGING. Neither depends on the other: each has its own folder under
+`projects/`, its own series rules, protocol facts, outputs, logs and QC. What
+belongs to which study is decided by the code in each name: `CBR-003…` → CBR,
+`GER00039_…` → COGAGING.
 
 ---
 
-## Recon Mac — what to run (FreeSurfer 8, native Apple Silicon)
+## Plug and play (a new Mac, or after any update)
 
-**0. One-time setup**
+Once, in Terminal (the repository is private: git asks you to sign in to
+GitHub; use a personal access token or `gh auth login`):
+
 ```bash
-# Python deps (dcm2niix wheel is bundled; pydicom for tags)
-python3 -m pip install -r requirements.txt
-
-# Install FreeSurfer 8 (macOS arm64 build) and put your free license at:
-#   $FREESURFER_HOME/license.txt     (register at surfer.nmr.mgh.harvard.edu/registration.html)
-export FREESURFER_HOME=/Applications/freesurfer/8.0.0   # adjust to your install
-source $FREESURFER_HOME/SetUpFreeSurfer.sh
-
-python3 code/check_environment.py --project CBR   # should say GOOD TO GO
+git clone https://github.com/felipe-brunheroto/pipeline-neuroimagem.git ~/pipeline-neuroimagem
+bash ~/pipeline-neuroimagem/start.command
 ```
 
-(All scripts live in `code/`; run them from the repository root with
-`--project CBR` or `--project COGAGING`. Each study's data lives in
-`projects/<NAME>/`, under one `bids/` root — see `STRUCTURE.md`. The commands
-below are for CBR; COGAGING uses the same commands with `--project COGAGING`
-(no defacing for now), plus `python3 code/run_samseg.py --project COGAGING`
-for white-matter lesions. Legacy dcm2bids subjects:
-`python3 code/import_bids.py --project COGAGING`.)
+After that, double-click `start.command` (or keep using the line above). Each
+time it:
 
-**1. Build the BIDS tree** (after `code/dicom_to_bids.py` + `code/deidentify_sidecars.py`)
+1. updates the code from GitHub (`git pull`; data folders are never in git);
+2. prepares Python in `.venv/` (needs Python 3.10+, e.g. from python.org;
+   the 3.9 that ships with macOS is too old for pydicom 3);
+3. loads FreeSurfer (`$FREESURFER_HOME`, else the newest `/Applications/freesurfer/*`);
+4. asks you to drag in folders to import, shows the plan, and imports on your
+   OK: **DICOM CDs, dcm2bids BIDS subjects, finished FreeSurfer runs, or a whole
+   old copy of the pipeline** (any older layout). Each item goes to its own
+   study (see `code/pipeline.py` / `code/import_inputs.py`):
+   - DICOM exam → `projects/<NAME>/Patient Files/`
+   - dcm2bids `sub-*` → `projects/COGAGING/sourcedata/received/`
+   - FreeSurfer run made by the FreeSurfer in use → `bids/derivatives/freesurfer/`
+     (renamed `sub-X_ses-N`; the batch will not redo it); made by another
+     version (e.g. 7.4.1) → `bids/derivatives/freesurfer-<version>/`, never mixed
+   - an old `session_map.tsv` → kept, so COGAGING session numbers never change
+   - nothing is overwritten or deleted; what cannot be placed safely (no code,
+     a COGAGING FreeSurfer run without a session in its name, an unfinished run)
+     is reported and left where it is. Dragged folders are **copied**.
+5. processes every study now (or leaves it for the night);
+6. offers to repeat 4–5 every night at 22:30 (one launchd job for all studies).
+
+From then on, new data only needs to be **dropped in `inbox/`** (next to
+`projects/`): the next run moves each item into its study and processes it.
+
+---
+
+## By hand (the same steps, one at a time)
+
 ```bash
-python3 code/make_bids.py --project CBR            # raw anat (+func) -> bids/sub-*
-python3 code/make_derivatives.py --project CBR     # scanner-derived maps + ASL/fmap sourcedata
-python3 code/run_recon_long.py --project CBR --dry-run   # preview the recon plan (no FreeSurfer)
+.venv/bin/python code/pipeline.py import /path/to/folder --dry-run   # what goes where
+.venv/bin/python code/pipeline.py import /path/to/folder             # copy it in
+.venv/bin/python code/pipeline.py run                                # every study's batch
+.venv/bin/python code/pipeline.py status                             # what each study holds
+.venv/bin/python code/run_batch.py --project COGAGING --dry-run      # one study's plan
 ```
 
-**2. Deface the anatomicals** (reads `bids/`, writes `bids/derivatives/defaced/`, keeps originals)
-```bash
-python3 code/deface_anat.py --project CBR
-```
-
-**3. Run the FreeSurfer longitudinal stream** (cross → within-subject base → long)
-```bash
-python3 code/run_recon_long.py --project CBR --input projects/CBR/bids/derivatives/defaced \
-    --jobs 4 --threads 4
-```
-Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative).
-Budget ~8 GB RAM and a few cores per job; `--jobs 4` is comfortable on 64 GB.
-Completed runs are skipped automatically; per-run logs land in
-`bids/derivatives/freesurfer/logs/`.
-
-**4. QC, then extract metrics**
-```bash
-freeview ...                          # visual surface check; note the Euler number
-python3 code/extract_fs_stats.py --project CBR      # -> tidy tables in bids/derivatives/freesurfer/stats/
-```
-
-**5. Or let the Mac Mini do all of it, every night** (only new or unfinished work)
-```bash
-python3 code/run_batch.py --project COGAGING --dry-run            # what is pending
-python3 code/run_batch.py --project COGAGING                      # run it now
-python3 code/install_schedule.py --project COGAGING --at 22:30    # nightly (launchd)
-python3 code/install_schedule.py --project CBR --at 23:30         # queues behind it
-```
 Each run leaves `projects/<NAME>/logs/batch/last_summary.md` (what ran, what
 failed and why, what needs a person, QC to do). Students read it, do the QC and
-teach unknown series from their menu (items R, C, S). On the conversion Mac (no
-FreeSurfer) use `--no-freesurfer`. Details: README, "Unattended batch".
+teach unknown series from their menu (`Pipeline_Alunos/iniciar.command`, items
+R, C, S). On a Mac without FreeSurfer the batch runs conversion and BIDS only.
+Details: README, "Plug and play" and "Unattended batch"; layout: STRUCTURE.md.
 
 ---
 
 ## Notes
-- For this dataset the plan is **6 cross-sectional + 2 within-subject templates
-  (CBR003, CBR011) + 4 longitudinal** runs. Single-visit subjects (CBR052,
-  CBR053) get the cross-sectional run only and join the longitudinal stream when
-  follow-ups arrive.
-- Sessions follow the study scheme: **ses-1 = baseline, ses-2 = 6-month,
-  ses-3 = 12-month.**
-- N=4 is a **pilot** — plan hypothesis-driven ROI analysis with mixed-effects
-  models, not whole-brain vertexwise.
-- Validate the BIDS tree on this Mac: `deno run -A jsr:@bids/validator bids`.
+- Sessions: CBR numbers visits by folder suffix (`CBR-003` = baseline ses-1,
+  `CBR-003.2` = 6 months, `CBR-003.3` = 12 months); COGAGING numbers them by
+  exam date, with the date map kept in `projects/COGAGING/sourcedata/session_map.tsv`.
+- One FreeSurfer version per study: `run_recon_long.py` refuses to mix them in
+  one SUBJECTS_DIR, and imported runs of another version stay apart.
+- Validate a BIDS tree on the Mac: `deno run -A jsr:@bids/validator projects/<NAME>/bids`.
