@@ -42,6 +42,18 @@ Option B - pass the paths on the command line (overrides the defaults):
 
 When it finishes, look in your OUTPUT_DIR. You will find one folder per
 subject plus provenance.csv, validation_report.csv and conversion_log.txt.
+
+ONLY NEW EXAMS (used by run_batch.py)
+-------------------------------------
+    python dicom_to_bids.py --only-new [--settle-minutes 30]
+
+converts only the exam folders whose session is not in provenance.csv yet (new
+CDs, or a conversion that crashed before writing its reports), plus sessions
+with an unknown series that a rule added since now classifies. Each of those
+sessions is rebuilt from scratch; the rows of every other session are kept, so
+the reports end up the same as after a full run. --settle-minutes leaves alone
+a folder changed in the last N minutes (a CD still being copied). Without
+--only-new the script behaves exactly as before: every exam is converted.
 """
 
 # ----------------------------------------------------------------------------
@@ -270,6 +282,123 @@ def first_study_info(exam_dir):
     return "", ""
 
 
+def exam_folders(input_dir, output_dir):
+    """(name, path) of each immediate sub-folder of the input: one per exam."""
+    subjects = []
+    for entry in sorted(os.listdir(input_dir)):
+        full = os.path.join(input_dir, entry)
+        if not os.path.isdir(full):
+            continue
+        if os.path.abspath(full) == os.path.abspath(output_dir):
+            continue   # never treat our own output folder as a subject
+        subjects.append((entry, full))
+    return subjects
+
+
+def newest_change(folder):
+    """Most recent modification time of anything inside `folder` (a CD that is
+    still being copied keeps moving this forward)."""
+    newest = os.path.getmtime(folder)
+    for root, dirs, files in os.walk(folder):
+        for name in dirs + files:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+            except OSError:
+                pass
+    return newest
+
+
+def read_csv_rows(path):
+    """Rows of one of our report CSVs ([] if it does not exist yet)."""
+    if not os.path.isfile(path):
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def converted_sessions(output_dir):
+    """{(subject, session)} that already have rows in provenance.csv."""
+    return {(r["subject"], r["session"])
+            for r in read_csv_rows(os.path.join(output_dir, "provenance.csv"))}
+
+
+def reclassified_sessions(output_dir, series_map):
+    """Sessions with an unknown series that the current rules now classify
+    (a series_map row was added since), so they are worth converting again."""
+    out = set()
+    report = os.path.join(output_dir, "reports", "unknown_series_report.csv")
+    for r in read_csv_rows(report):
+        cls = sc.classify(r.get("series_description", ""),
+                          image_type=r.get("image_type", ""),
+                          modality=r.get("modality", ""),
+                          sequence=r.get("sequence", ""), series_map=series_map)
+        if cls.datatype != "unknown":
+            out.add((r["subject"], r["session"]))
+    return out
+
+
+def project_series_map():
+    """The study's own rules first, then the shared map (see main)."""
+    return (sc.load_series_map(str(paths.PROJECT_SERIES_MAP))
+            + sc.load_series_map())
+
+
+def pending_exams(input_dir, output_dir, settle_seconds=0):
+    """
+    Read-only plan of what --only-new would do, for run_batch.py. One dict per
+    exam folder: index (1-based, the number used in logs), name, path, subject,
+    session (None when not decided yet) and state:
+      done        session already in provenance.csv
+      new         not converted yet (or not numbered yet: COGAGING)
+      reclassify  converted, with an unknown series a new rule now classifies
+      settling    changed in the last `settle_seconds` (still being copied?)
+      no-code     COGAGING folder without a study code in its name
+    Nothing is written (the session map is only read, never updated).
+    """
+    done = converted_sessions(output_dir)
+    again = reclassified_sessions(output_dir, project_series_map())
+    known = {r["study_uid"]: r for r in session_map.load(str(paths.SESSION_MAP))
+             if r.get("study_uid")}
+    now = datetime.now().timestamp()
+    out = []
+    for k, (name, full) in enumerate(exam_folders(input_dir, output_dir), start=1):
+        item = {"index": k, "name": name, "path": full,
+                "subject": None, "session": None}
+        if paths.PROJECT.get("subject_pattern"):
+            item["subject"] = project_subject_label(name)
+            if item["subject"] and paths.PROJECT.get("sessions") == "date_order":
+                row = known.get(first_study_info(full)[1])
+                item["session"] = row["session"] if row else None
+            elif item["subject"]:
+                item["session"] = "ses-1"
+        else:
+            item["subject"], item["session"] = parse_subject_session(
+                name, load_subjects_map())
+        label = (item["subject"], item["session"])
+        if settle_seconds and now - newest_change(full) < settle_seconds:
+            item["state"] = "settling"
+        elif item["subject"] is None:
+            item["state"] = "no-code"
+        elif label in again:
+            item["state"] = "reclassify"
+        elif item["session"] and label in done:
+            item["state"] = "done"
+        else:
+            item["state"] = "new"
+        out.append(item)
+    return out
+
+
+def merge_rows(old_rows, new_rows, redone, order):
+    """Old report rows of the sessions NOT converted this run, plus the new
+    rows, in exam-folder order (as a full run would write them)."""
+    rows = [r for r in old_rows if (r["subject"], r["session"]) not in redone]
+    rows += new_rows
+    last = len(order)
+    return sorted(rows, key=lambda r: (order.get((r["subject"], r["session"]), last),
+                                       r["subject"], r["session"]))
+
+
 def scan_subject_series(subject_dir, log_lines):
     """
     Walk through one subject's folder, find all DICOM files, and group them by
@@ -438,10 +567,29 @@ def compare_values(dicom_value, json_value, scale=1.0):
 # 4. MAIN PROGRAM
 # ============================================================================
 
+def parse_args(argv):
+    """(positional paths, only_new, settle_seconds) from the command line."""
+    positional, only_new, settle_minutes = [], False, 0.0
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--only-new":
+            only_new = True
+        elif argv[i] == "--settle-minutes" and i + 1 < len(argv):
+            settle_minutes = float(argv[i + 1])
+            i += 1
+        elif argv[i].startswith("--settle-minutes="):
+            settle_minutes = float(argv[i].split("=", 1)[1])
+        else:
+            positional.append(argv[i])
+        i += 1
+    return positional, only_new, settle_minutes * 60
+
+
 def main():
     # Allow optional command-line override of the two paths.
-    input_dir = sys.argv[1] if len(sys.argv) > 1 else INPUT_DIR
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else OUTPUT_DIR
+    positional, only_new, settle_seconds = parse_args(sys.argv[1:])
+    input_dir = positional[0] if len(positional) > 0 else INPUT_DIR
+    output_dir = positional[1] if len(positional) > 1 else OUTPUT_DIR
 
     log_lines = []   # collected and written to conversion_log.txt at the end
     log("=" * 70, log_lines)
@@ -490,8 +638,7 @@ def main():
     # (teaches new projects) and any subjects_map.csv (explicit folder->labels).
     # The study's own rules (projects/<NAME>/series_map.csv) come first, so one
     # study's scanner names never change another's; then the shared map.
-    series_map = (sc.load_series_map(str(paths.PROJECT_SERIES_MAP))
-                  + sc.load_series_map())
+    series_map = project_series_map()
     subjects_map = load_subjects_map()
     log(f" series_map rules: {len(series_map)}   "
         f"subjects_map overrides: {len(subjects_map)}", log_lines)
@@ -505,14 +652,20 @@ def main():
     # A "subject" is any immediate sub-folder of INPUT_DIR that actually
     # contains DICOM files. This automatically skips the output folder and
     # any stray non-imaging folders.
-    subjects = []
-    for entry in sorted(os.listdir(input_dir)):
-        full = os.path.join(input_dir, entry)
-        if not os.path.isdir(full):
-            continue
-        if os.path.abspath(full) == os.path.abspath(output_dir):
-            continue   # never treat our own output folder as a subject
-        subjects.append((entry, full))
+    subjects = exam_folders(input_dir, output_dir)
+    index_of = {name: k for k, (name, _full) in enumerate(subjects, start=1)}
+
+    # --only-new: a folder that is still changing (a CD being copied) waits for
+    # the next run, so a half-copied exam is never converted and recorded.
+    if only_new and settle_seconds:
+        now = datetime.now().timestamp()
+        waiting = [k for k, (_name, full) in enumerate(subjects, start=1)
+                   if now - newest_change(full) < settle_seconds]
+        for k in waiting:
+            log(f"[wait] exam folder #{k} changed in the last "
+                f"{settle_seconds / 60:g} min (still being copied?); next run.",
+                log_lines)
+        subjects = [s for k, s in enumerate(subjects, start=1) if k not in waiting]
 
     if not subjects:
         log("No subject sub-folders found. Nothing to do.", log_lines)
@@ -526,11 +679,12 @@ def main():
     labels = {}
     if paths.PROJECT.get("subject_pattern"):
         exams = []
-        for k, (subject_name, subject_dir) in enumerate(subjects, start=1):
+        for subject_name, subject_dir in subjects:
             subject_label = project_subject_label(subject_name)
             if subject_label is None:
-                log(f"ERROR: exam folder #{k} has no study code matching "
-                    f"{paths.PROJECT['subject_pattern']!r} in its name; rename it "
+                log(f"ERROR: exam folder #{index_of[subject_name]} has no study "
+                    f"code matching {paths.PROJECT['subject_pattern']!r} in its "
+                    "name; rename it "
                     "(e.g. GER00039_...) and run again.", log_lines)
                 sys.exit(1)
             date, uid = first_study_info(subject_dir)
@@ -549,8 +703,37 @@ def main():
         labels = {name: parse_subject_session(name, subjects_map)
                   for name, _dir in subjects}
 
+    # --- --only-new: which exams still need converting ----------------------
+    # Every exam above was labelled (so the session map covers them all); only
+    # sessions not in provenance.csv yet, or with an unknown series a new rule
+    # now classifies, are converted. Each of those starts from an empty session
+    # folder, so a conversion that crashed half-way leaves no stray files.
+    to_convert = subjects
+    redone = set()
+    if only_new:
+        done = converted_sessions(output_dir)
+        again = reclassified_sessions(output_dir, series_map)
+        to_convert = [(name, full) for name, full in subjects
+                      if labels[name] not in done or labels[name] in again]
+        for name, _full in subjects:
+            if (name, _full) not in to_convert:
+                shown = (f"exam folder #{index_of[name]}"
+                         if paths.PROJECT.get("subject_pattern") else name)
+                log(f"[skip] {shown}: {'/'.join(labels[name])} already converted",
+                    log_lines)
+        if not to_convert:
+            log("Nothing new to convert; the reports were left as they are.",
+                log_lines)
+            shutil.rmtree(work_root, ignore_errors=True)
+            return
+        redone = {labels[name] for name, _full in to_convert}
+        for subject_label, session_label in redone:
+            shutil.rmtree(os.path.join(output_dir, subject_label, session_label),
+                          ignore_errors=True)
+
     # --- process each subject ---------------------------------------------
-    for k, (subject_name, subject_dir) in enumerate(subjects, start=1):
+    for subject_name, subject_dir in to_convert:
+        k = index_of[subject_name]
         # One folder = one subject + one visit/session. Repeat visits of the
         # same person (e.g. CBR-003-2 and CBR-003.3) share the subject_label and
         # only differ in session_label, so they nest under one sub-XXX folder.
@@ -703,6 +886,20 @@ def main():
                     })
 
     # --- write the reports ------------------------------------------------
+    # --only-new: keep the rows of every session not converted this run.
+    if only_new:
+        order = {labels[name]: k for k, (name, _full) in enumerate(subjects)}
+        provenance_rows = merge_rows(
+            read_csv_rows(os.path.join(output_dir, "provenance.csv")),
+            provenance_rows, redone, order)
+        validation_rows = merge_rows(
+            read_csv_rows(os.path.join(output_dir, "validation_report.csv")),
+            validation_rows, redone, order)
+        unknown_rows = merge_rows(
+            read_csv_rows(os.path.join(output_dir, "reports",
+                                       "unknown_series_report.csv")),
+            unknown_rows, redone, order)
+
     provenance_csv = os.path.join(output_dir, "provenance.csv")
     with open(provenance_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[

@@ -159,6 +159,18 @@ def diagnose_data_folder(path):
             print("      that holds several exams. Point one level ABOVE (the")
             print("      folder that contains exam folders, e.g. CBR-003, CBR-052).")
             return "pointed_inside_exam"
+        # Projects that read the code out of the folder name (COGAGING) may have
+        # a patient name in the rest of it: show the codes only, never the name,
+        # since this text ends up in the batch logs.
+        if paths.PROJECT.get("subject_pattern"):
+            import re
+            codes = sorted({m.group(0).upper() for m in
+                            (re.search(paths.PROJECT["subject_pattern"], n, re.IGNORECASE)
+                             for n in exams) if m})
+            print(f"\n  [ok] Found {len(exams)} exam folder(s) with DICOM data "
+                  f"({len(codes)} study code(s): {', '.join(codes[:8])}"
+                  f"{', ...' if len(codes) > 8 else ''}).")
+            return "ok"
         print(f"\n  [ok] Found {len(exams)} exam folder(s) with DICOM data:")
         for name in exams[:8]:
             print(f"        - {name}")
