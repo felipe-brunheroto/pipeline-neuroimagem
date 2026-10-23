@@ -153,3 +153,22 @@ def test_menu_lists_both_projects_without_touching_the_repo(done):
     menu(done, ["2", "q"])
     assert sorted(p.name for p in (s.REPO / "Pipeline_Alunos").iterdir()) == before
     assert (done["projects"] / "projeto_atual.txt").read_text().strip() == "COGAGING"
+
+
+def test_menu_recon_ignores_the_freesurfer_subjects_dir(tmp_path):
+    """Step 6 by hand must write into bids/derivatives/freesurfer even though
+    loading FreeSurfer points SUBJECTS_DIR at its own install folder."""
+    projects = s.make_projects(tmp_path)
+    pf = projects / "COGAGING" / "Patient Files"
+    s.make_exam(str(pf / s.exam_folder_name("GER00039", "20120304")), s.COG_SERIES,
+                "20120304")
+    fs = s.make_freesurfer(tmp_path)
+    env = s.env_for(projects, fs)           # sets SUBJECTS_DIR=<fs>/subjects
+    r = s.run("run_batch.py", "COGAGING", env, *FAST, "--no-freesurfer")
+    assert r.returncode == 0, r.stdout + r.stderr
+    ctx = {"env": env}
+    r = menu(ctx, ["2", "6", "s", "1", "", "q"])
+    assert "Passo concluido" in r.stdout, r.stdout[-3000:]
+    fsdir = projects / "COGAGING" / "bids" / "derivatives" / "freesurfer"
+    assert (fsdir / "sub-GER00039_ses-1" / "scripts" / "recon-all.done").is_file()
+    assert not (fs / "subjects").exists()

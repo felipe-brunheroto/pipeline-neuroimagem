@@ -78,6 +78,40 @@ including the working conversion tree under `sourcedata/conversion/`).
 
 ---
 
+## For collaborators (working on the code through GitHub)
+
+The GitHub repository holds **code, settings and documents only**. Each author
+clones it; the data stays on the lab Macs and is copied only by the lab's
+approved methods (never through GitHub, cloud drives or chat).
+
+```bash
+git clone https://github.com/felipe-brunheroto/pipeline-neuroimagem.git
+cd pipeline-neuroimagem
+python3 -m pip install -r requirements.txt pytest
+python3 -m pytest tests -q          # synthetic data only; ~1 min, all must pass
+```
+
+- **Change code on a branch and open a pull request**; another author reviews
+  before it goes into `main`. Run `python3 -m pytest tests -q` before pushing.
+  A change to shared code must keep `tests/test_cbr_unchanged.py` green (CBR
+  outputs byte-identical).
+- **Never commit data.** `.gitignore` blocks `Patient Files/`, `bids/`,
+  `sourcedata/`, `logs/`, `archive/`, DICOM/NIfTI/MGZ files and the menu's
+  per-machine choices; do not force-add (`git add -f`) anything it blocks, and
+  check `git status` before every commit. Series rules added from the menu
+  (`projects/<NAME>/series_map.csv`) are code-like settings and *are* committed.
+- **Tests use synthetic data only** (`tests/synthetic.py` writes fake DICOMs at
+  test time under a temporary `PIPELINE_PROJECTS_DIR`); never point a test at
+  a real projects folder.
+- **AI assistants** (Claude Code etc.) working in a clone must follow
+  [`CLAUDE.md`](CLAUDE.md); on a machine with patient data, never in an
+  auto-accept mode.
+- **Updating a lab Mac:** `git pull` in its clone (the data folders are
+  untouched). A runtime-only package for a Mac without git:
+  `git archive --format=zip -o ~/Desktop/pipeline.zip HEAD` (see `.gitattributes`).
+
+---
+
 ## Setup on a new (workplace) computer — Windows
 
 1. **Choose a local-only folder, NOT inside OneDrive/Dropbox/Google Drive.**
