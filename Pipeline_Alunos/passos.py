@@ -1016,6 +1016,12 @@ def rodar_passo(num):
 
     cmd = [sys.executable, str(caminho), "--project", PROJETO] + extra_args
 
+    # Passos 6 e 7: sempre a pasta do FreeSurfer do estudo. Carregar o
+    # FreeSurfer (SetUpFreeSurfer.sh) aponta SUBJECTS_DIR para a pasta de
+    # instalacao dele, e o recon iria parar la, longe de bids/ e do QC.
+    if script in ("run_recon_long.py", "extract_fs_stats.py"):
+        cmd += ["--subjects-dir", str(caminhos()["FREESURFER_DIR"])]
+
     # O passo 6 (FreeSurfer) roda em lotes: perguntamos quantos em paralelo.
     if script == "run_recon_long.py":
         n = input("  Quantos exames processar em paralelo? "
