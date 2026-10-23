@@ -10,9 +10,14 @@ under `projects/<NAME>/` with a `project.json` describing it:
 - `projects/CBR/` — CBR / NEUROCOVID. Input: raw DICOM (one folder per exam,
   e.g. `CBR-003`) in `projects/CBR/Patient Files/`, converted to NIfTI
   (`.nii.gz`) and organized into a BIDS dataset.
-- `projects/COGAGING/` — input: BIDS delivered by the acquisition team in
-  `projects/COGAGING/sourcedata/received/`, imported (session level added,
-  sidecars de-identified) with `code/import_bids.py`.
+- `projects/COGAGING/` — Cog-Aging. Input: raw DICOM from clinical CDs in
+  `projects/COGAGING/Patient Files/` (folder names carry the code, e.g.
+  `GER00039_...`; the rest of the name may hold a patient name and is never
+  written out). Sessions are numbered by exam date; the date map stays in
+  `projects/COGAGING/sourcedata/session_map.tsv`, outside `bids/`. Subjects
+  already converted with dcm2bids are imported from
+  `projects/COGAGING/sourcedata/received/` with `code/import_bids.py`.
+  No defacing until the study decides about external sharing.
 
 Each study's outputs live in a single, OpenNeuro-ready BIDS dataset under
 `projects/<NAME>/bids/` (raw `sub-*`, `sourcedata/`, and `derivatives/`), with
@@ -27,8 +32,10 @@ Main scripts (already written and tested):
 - `code/dicom_to_bids.py`      — DICOM projects: reads DICOMs, converts with
                             dcm2niix, sorts outputs, writes provenance.csv and
                             validation_report.csv into `bids/sourcedata/conversion/`.
-- `code/import_bids.py`        — BIDS projects: builds the de-identified `bids/`
-                            from the delivered copy.
+- `code/import_bids.py`        — subjects delivered already in BIDS: builds the
+                            de-identified `bids/` from the delivered copy.
+- `code/run_recon_long.py`     — FreeSurfer recon-all (flags per project.json).
+- `code/run_samseg.py`         — SAMSEG white-matter lesions (COGAGING).
 
 ## SAFETY AND ETHICS RULES — do not break these
 1. **This is real patient MRI data.** It must stay on this computer.
@@ -53,7 +60,8 @@ Main scripts (already written and tested):
    "GOOD TO GO".
 3. DICOM projects: run `python code/dicom_to_bids.py --project CBR` (defaults
    read `projects/CBR/Patient Files/` and write to
-   `projects/CBR/bids/sourcedata/conversion/`). BIDS projects: run
+   `projects/CBR/bids/sourcedata/conversion/`). Same for COGAGING with
+   `--project COGAGING`; legacy dcm2bids subjects: run
    `python code/import_bids.py --project COGAGING`.
 4. Review `bids/sourcedata/conversion/validation_report.csv` (DICOM projects)
    or the import log in `bids/sourcedata/import/` (BIDS projects) — any row

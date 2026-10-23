@@ -72,6 +72,7 @@ except ImportError:
 # reads the operator-editable series_map.csv. setup_workspace prepares/validates
 # the input folder so data is never misdirected on the first run.
 import series_classifier as sc
+import session_map
 import setup_workspace
 import paths
 
@@ -241,6 +242,34 @@ def parse_subject_session(folder_name, subjects_map=None):
     return safe_label(name), "ses-1"
 
 
+def project_subject_label(folder_name):
+    """
+    For projects that declare a "subject_pattern" (e.g. COGAGING: 'GER\\d+'),
+    the subject code is the pattern found ANYWHERE in the exam folder name, so
+    'sub-GER00039_SOMETHING' -> 'sub-GER00039'. Everything else in the folder
+    name is ignored (it may hold a patient name). None if the code is missing.
+    """
+    match = re.search(paths.PROJECT["subject_pattern"], folder_name or "", re.IGNORECASE)
+    return "sub-" + match.group(0).upper() if match else None
+
+
+def first_study_info(exam_dir):
+    """(StudyDate, StudyInstanceUID) of the first DICOM found in an exam folder."""
+    for root, _dirs, files in os.walk(exam_dir):
+        for filename in sorted(files):
+            path = os.path.join(root, filename)
+            if not is_dicom_file(path):
+                continue
+            try:
+                ds = pydicom.dcmread(path, stop_before_pixels=True, force=True,
+                                     specific_tags=["StudyDate", "StudyInstanceUID"])
+            except Exception:
+                continue
+            return (str(getattr(ds, "StudyDate", "") or ""),
+                    str(getattr(ds, "StudyInstanceUID", "") or ""))
+    return "", ""
+
+
 def scan_subject_series(subject_dir, log_lines):
     """
     Walk through one subject's folder, find all DICOM files, and group them by
@@ -285,19 +314,22 @@ def scan_subject_series(subject_dir, log_lines):
                 ds = pydicom.dcmread(path, stop_before_pixels=True,
                                      specific_tags=wanted_tags, force=True)
             except Exception as err:
-                log(f"    [skip] could not read DICOM '{path}': {err}", log_lines)
+                log(f"    [skip] could not read DICOM "
+                    f"'{os.path.relpath(path, subject_dir)}': {err}", log_lines)
                 continue
 
             uid = getattr(ds, "SeriesInstanceUID", None)
             if not uid:
                 # Without a series UID we cannot group reliably -> log and skip.
-                log(f"    [skip] no SeriesInstanceUID in '{path}'", log_lines)
+                log(f"    [skip] no SeriesInstanceUID in "
+                    f"'{os.path.relpath(path, subject_dir)}'", log_lines)
                 continue
 
             n_dicom += 1
             if uid not in series:
                 image_type = getattr(ds, "ImageType", "") or ""
-                if isinstance(image_type, (list, tuple)):
+                # pydicom returns a MultiValue (not a list) for multi-valued tags.
+                if not isinstance(image_type, str):
                     image_type = "/".join(str(x) for x in image_type)
                 series[uid] = {
                     "number": getattr(ds, "SeriesNumber", ""),
@@ -341,14 +373,18 @@ def run_dcm2niix(dcm2niix_path, subject_dir, work_dir, file_prefix, log_lines):
         "-d", "9",
         str(subject_dir),
     ]
-    log(f"    running: {' '.join(command)}", log_lines)
+    # Projects that read the study code out of the folder name never write the
+    # folder name itself (it may carry a patient name) into the log.
+    hide = (lambda text: text.replace(str(subject_dir), "<exam folder>")) \
+        if paths.PROJECT.get("subject_pattern") else (lambda text: text)
+    log(hide(f"    running: {' '.join(command)}"), log_lines)
     try:
         result = subprocess.run(command, capture_output=True, text=True,
                                 timeout=3600)  # 1 hour safety limit
         # dcm2niix prints lots of progress text; keep the last few lines.
         output = (result.stdout + result.stderr).strip().splitlines()
         for line in output[-8:]:
-            log(f"      dcm2niix> {line}", log_lines)
+            log(hide(f"      dcm2niix> {line}"), log_lines)
         return result.returncode == 0
     except Exception as err:
         log(f"    [error] dcm2niix failed: {err}", log_lines)
@@ -452,7 +488,10 @@ def main():
 
     # Load the classification rules once: the operator-editable series_map.csv
     # (teaches new projects) and any subjects_map.csv (explicit folder->labels).
-    series_map = sc.load_series_map()
+    # The study's own rules (projects/<NAME>/series_map.csv) come first, so one
+    # study's scanner names never change another's; then the shared map.
+    series_map = (sc.load_series_map(str(paths.PROJECT_SERIES_MAP))
+                  + sc.load_series_map())
     subjects_map = load_subjects_map()
     log(f" series_map rules: {len(series_map)}   "
         f"subjects_map overrides: {len(subjects_map)}", log_lines)
@@ -479,16 +518,47 @@ def main():
         log("No subject sub-folders found. Nothing to do.", log_lines)
         return
 
+    # --- subject / session labels -----------------------------------------
+    # Projects with a "subject_pattern" (COGAGING) take the study code from the
+    # folder name and number sessions by exam date (session_map.assign); the
+    # rest of the folder name is never written anywhere. Other projects (CBR)
+    # use parse_subject_session (folder suffix = visit index).
+    labels = {}
+    if paths.PROJECT.get("subject_pattern"):
+        exams = []
+        for k, (subject_name, subject_dir) in enumerate(subjects, start=1):
+            subject_label = project_subject_label(subject_name)
+            if subject_label is None:
+                log(f"ERROR: exam folder #{k} has no study code matching "
+                    f"{paths.PROJECT['subject_pattern']!r} in its name; rename it "
+                    "(e.g. GER00039_...) and run again.", log_lines)
+                sys.exit(1)
+            date, uid = first_study_info(subject_dir)
+            exams.append((subject_name, subject_label, date, uid))
+        if paths.PROJECT.get("sessions") == "date_order":
+            labels, problems = session_map.assign(exams, str(paths.SESSION_MAP))
+            if problems:
+                for p in problems:
+                    log(f"ERROR: {p}", log_lines)
+                log("Nothing was converted; session numbers already in use were "
+                    "not changed.", log_lines)
+                sys.exit(1)
+        else:
+            labels = {e[0]: (e[1], "ses-1") for e in exams}
+    else:
+        labels = {name: parse_subject_session(name, subjects_map)
+                  for name, _dir in subjects}
+
     # --- process each subject ---------------------------------------------
-    for subject_name, subject_dir in subjects:
+    for k, (subject_name, subject_dir) in enumerate(subjects, start=1):
         # One folder = one subject + one visit/session. Repeat visits of the
         # same person (e.g. CBR-003-2 and CBR-003.3) share the subject_label and
         # only differ in session_label, so they nest under one sub-XXX folder.
-        subject_label, session_label = parse_subject_session(subject_name,
-                                                              subjects_map)
+        subject_label, session_label = labels[subject_name]
         file_prefix = f"{subject_label}_{session_label}"
+        shown = f"exam folder #{k}" if paths.PROJECT.get("subject_pattern") else subject_name
         log("", log_lines)
-        log(f"SUBJECT: {subject_name}  ->  {subject_label}/{session_label}", log_lines)
+        log(f"SUBJECT: {shown}  ->  {subject_label}/{session_label}", log_lines)
 
         # 1) Scan and group this subject's DICOMs by series.
         series = scan_subject_series(subject_dir, log_lines)

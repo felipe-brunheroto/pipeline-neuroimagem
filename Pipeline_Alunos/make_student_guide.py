@@ -77,8 +77,8 @@ def steps_table(st):
          "Lê os exames da pasta de dados confirmada (seção 3) e cria as imagens "
          ".nii.gz organizadas em bids/sourcedata/conversion/, com provenance.csv "
          "e validation_report.csv. Os DICOM originais não são tocados. "
-         "No COGAGING (já chega em BIDS) este passo importa os dados recebidos, "
-         "e os passos 2 a 4 já vêm incluídos."],
+         "No COGAGING o código do sujeito (ex.: GER00039) é lido do nome da "
+         "pasta, e os exames de um mesmo sujeito viram ses-1, ses-2… pela data."],
         ["2", "Desidentificar",
          "Remove identificadores dos arquivos .json. Só depois disto os dados "
          "estão desidentificados."],
@@ -90,13 +90,23 @@ def steps_table(st):
          "bids/derivatives/ e prepara ASL e field map em bids/sourcedata/."],
         ["5", "Remoção facial (defacing)",
          "Cria cópias sem rosto em bids/derivatives/defaced/. "
-         "Mantém os originais. Precisa do FreeSurfer. Rode depois do passo 3."],
+         "Mantém os originais. Precisa do FreeSurfer. Rode depois do passo 3. "
+         "(Não aparece no COGAGING por enquanto.)"],
         ["6", "FreeSurfer (recon)",
          "Reconstrói o cérebro e compara cada pessoa no tempo. MUITO demorado — "
          "roda em lotes (você escolhe quantos por vez). Precisa do FreeSurfer."],
         ["7", "Extrair os volumes",
          "Gera tabelas (.tsv) de volume e espessura por região, em "
          "bids/derivatives/freesurfer/stats/. É o produto final desta etapa."],
+        ["8", "Lesões de substância branca (SAMSEG)",
+         "Só no COGAGING. Alinha a FLAIR ao T1, roda o SAMSEG (~5 min por exame) "
+         "e gera bids/derivatives/samseg/samseg_lesions.tsv: volume da lesão em "
+         "mm³ e em % do intracraniano. Depois, faça o QC visual que o programa "
+         "mostra no fim. Precisa do FreeSurfer do Mac Mini."],
+        ["I", "Importar BIDS já convertido",
+         "Só no COGAGING: traz os sujeitos que a equipe já tinha convertido com o "
+         "dcm2bids (pasta sourcedata/received). Numera as sessões pela data e "
+         "apaga os identificadores dos .json."],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in r] for i, r in enumerate(rows)]
@@ -168,7 +178,7 @@ def faq_table(st):
         ["O passo 0 diz que falta o dcm2niix (ou o pydicom).",
          "Na pasta do projeto, rode  python3 -m pip install -r requirements.txt  "
          "e depois rode o passo 0 de novo. O próprio passo 0 mostra como."],
-        ["Os passos 5, 6 ou 7 dão erro de FreeSurfer.",
+        ["Os passos 5 a 8 dão erro de FreeSurfer.",
          "O FreeSurfer 8 precisa estar instalado e “carregado” nesta janela do "
          "Terminal. Isso é tarefa do responsável (um comando por janela)."],
         ["Mudei a pasta do projeto de lugar; preciso reconfigurar algo?",
@@ -178,8 +188,14 @@ def faq_table(st):
          "Tudo dentro da pasta bids/ do estudo (projects/<ESTUDO>/bids/): a "
          "conversão crua em bids/sourcedata/conversion/ (passos 1–2), o BIDS "
          "organizado em bids/sub-* (passo 3) e os derivados e análises em bids/derivatives/ "
-         "(passos 4–7). "
+         "(passos 4–8; as lesões do SAMSEG ficam em bids/derivatives/samseg/). "
          "Os DICOM originais nunca são alterados."],
+        ["O SAMSEG (passo 8) parou com “Abort trap: 6”.",
+         "Ele precisa do FreeSurfer nativo do Mac Mini (o de Intel via Rosetta "
+         "não tem AVX). Rode o passo 8 no Mac Mini."],
+        ["A conversão parou dizendo que um exame novo é MAIS ANTIGO que outro.",
+         "É de propósito: as sessões são numeradas pela data e não mudam depois. "
+         "Chame o responsável para decidir a numeração."],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in r] for i, r in enumerate(rows)]
@@ -248,9 +264,11 @@ def build(path):
         "troca depois). Cada estudo tem sua pasta dentro de <b>projects/</b>. "
         "No CBR, que chega em DICOM, o passo 1 precisa saber em que pasta estão "
         "os exames. Por padrão ele procura na pasta <b>Patient Files</b> do "
-        "estudo, com <b>um exame por subpasta</b>. No COGAGING, que já chega em "
-        "BIDS, o passo 1 importa a pasta <b>sourcedata/received</b> do estudo e "
-        "já inclui os passos 2 a 4:", st["body"]))
+        "estudo, com <b>um exame por subpasta</b>. O COGAGING funciona igual "
+        "(o nome de cada pasta precisa ter o código do sujeito, ex.: "
+        "<b>GER00039</b>); os sujeitos que já tinham sido convertidos com o "
+        "dcm2bids entram pelo item <b>I</b>, a partir de <b>sourcedata/received</b>:",
+        st["body"]))
     F.append(Preformatted(
         "Pipeline Neuroimagem/          (a pasta do projeto)\n"
         "  |- code/                     (os programas do pipeline)\n"
@@ -264,7 +282,8 @@ def build(path):
         "       |    |    \\- ...\n"
         "       |    \\- bids/          <-- resultados (os passos criam sozinhos)\n"
         "       \\- COGAGING/\n"
-        "            |- sourcedata/received/  <-- BIDS entregue (nao mexer)\n"
+        "            |- Patient Files/  <-- exames do CD (pasta com GER00039...)\n"
+        "            |- sourcedata/received/  <-- BIDS antigo do dcm2bids (item I)\n"
         "            \\- bids/          <-- resultados",
         st["mono"]))
     F.append(Paragraph(
@@ -293,7 +312,7 @@ def build(path):
     F.append(Paragraph("4. Os passos, um a um", st["h2"]))
     F.append(Paragraph("Faça <b>em ordem</b> (0 → 1 → 2 → …). No passo 1 o menu "
                        "confirma antes a pasta dos exames (seção 3). Os passos "
-                       "5, 6 e 7 precisam do FreeSurfer (já instalado no "
+                       "5 a 8 precisam do FreeSurfer (já instalado no "
                        "computador de Recon pelo responsável).", st["body"]))
     F.append(steps_table(st))
 

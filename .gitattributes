@@ -24,3 +24,6 @@ make_student_guide.py  export-ignore
 
 # The .gitattributes itself is git plumbing; no reason to ship it.
 .gitattributes         export-ignore
+
+# Audit/report documents for the team, not needed to run the pipeline.
+AUDITORIA_GUIA_COGAGING.md export-ignore

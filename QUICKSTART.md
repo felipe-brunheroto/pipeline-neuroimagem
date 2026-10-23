@@ -34,9 +34,10 @@ python3 code/check_environment.py --project CBR   # should say GOOD TO GO
 (All scripts live in `code/`; run them from the repository root with
 `--project CBR` or `--project COGAGING`. Each study's data lives in
 `projects/<NAME>/`, under one `bids/` root — see `STRUCTURE.md`. The commands
-below are for CBR; for COGAGING, step 1 is
-`python3 code/import_bids.py --project COGAGING` and steps 2–4 use
-`--project COGAGING` and `projects/COGAGING/...` paths.)
+below are for CBR; COGAGING uses the same commands with `--project COGAGING`
+(no defacing for now), plus `python3 code/run_samseg.py --project COGAGING`
+for white-matter lesions. Legacy dcm2bids subjects:
+`python3 code/import_bids.py --project COGAGING`.)
 
 **1. Build the BIDS tree** (after `code/dicom_to_bids.py` + `code/deidentify_sidecars.py`)
 ```bash

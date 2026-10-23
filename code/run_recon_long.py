@@ -40,6 +40,7 @@ EXAMPLES
 
 import os
 import re
+import json
 import sys
 import argparse
 import subprocess
@@ -62,12 +63,35 @@ def anat_role(filename):
     return None
 
 
+def bids_role(filename):
+    """The BIDS suffix (T1w/T2w/FLAIR) of an anat file, or the keyword guess for
+    non-BIDS names. Contrast-enhanced scans (ce-) are never used for recon."""
+    if "_ce-" in filename:
+        return None
+    m = re.search(r"_(T1w|T2w|FLAIR)\.nii(\.gz)?$", filename)
+    return m.group(1) if m else anat_role(filename)
+
+
+def _is_3d(nifti_path):
+    """True if the sidecar says 3D (MRAcquisitionType); False if 2D or unknown."""
+    sidecar = re.sub(r"\.nii(\.gz)?$", ".json", str(nifti_path))
+    try:
+        with open(sidecar, encoding="utf-8") as f:
+            return json.load(f).get("MRAcquisitionType") == "3D"
+    except Exception:
+        return False
+
+
 def discover(input_root):
     """
     Return {subject: {session: {"T1w": path, "FLAIR": path?, "T2w": path?}}}
     by scanning <input_root>/sub-*/ses-*/anat/*.nii.gz.
+
+    When a session has more than one candidate for a role (clinical CDs often
+    carry a 3D T1 plus 2D T1s), the 3D acquisition wins, then the first name in
+    sorted order; the choice is printed so it can be checked.
     """
-    tree = {}
+    candidates = {}
     root = Path(input_root)
     for anat_nifti in sorted(root.glob("sub-*/ses-*/anat/*.nii.gz")):
         parts = anat_nifti.parts
@@ -75,12 +99,18 @@ def discover(input_root):
         ses = next((p for p in parts if p.startswith("ses-")), None)
         if not sub or not ses:
             continue
-        role = anat_role(anat_nifti.name)
+        role = bids_role(anat_nifti.name)
         if role is None:
             continue
-        slot = tree.setdefault(sub, {}).setdefault(ses, {})
-        # First match wins per role (deterministic via sorted()).
-        slot.setdefault(role, str(anat_nifti))
+        candidates.setdefault((sub, ses, role), []).append(anat_nifti)
+
+    tree = {}
+    for (sub, ses, role), paths_found in sorted(candidates.items()):
+        chosen = sorted(paths_found, key=lambda p: (not _is_3d(p), p.name))[0]
+        if len(paths_found) > 1:
+            print(f"  [note] {sub}/{ses}: {len(paths_found)} {role} candidates; "
+                  f"using {chosen.name}")
+        tree.setdefault(sub, {}).setdefault(ses, {})[role] = str(chosen)
     return tree
 
 
@@ -96,10 +126,12 @@ def recon_done(subjects_dir, fs_subject):
                                        "scripts", "recon-all.done"))
 
 
-def build_plan(tree, subjects_dir, pial, threads):
+def build_plan(tree, subjects_dir, pial, threads, extra_flags=()):
     """
     Build the staged command plan. Returns a dict with lists of
     (label, fs_subject, command) tuples for 'cross', 'base', 'long'.
+    extra_flags (project.json "recon.flags", e.g. -qcache -3T) are added to
+    the cross-sectional runs; base/long inherit their processing from them.
     """
     plan = {"cross": [], "base": [], "long": []}
 
@@ -119,7 +151,7 @@ def build_plan(tree, subjects_dir, pial, threads):
                 cmd += ["-FLAIR", anat["FLAIR"], "-FLAIRpial"]
             elif pial == "t2" and anat.get("T2w"):
                 cmd += ["-T2", anat["T2w"], "-T2pial"]
-            cmd += ["-all", "-openmp", str(threads)]
+            cmd += ["-all"] + list(extra_flags) + ["-openmp", str(threads)]
             plan["cross"].append(("cross", sid, cmd))
 
         # ---- base + long only for subjects with >=2 timepoints -------------
@@ -175,6 +207,25 @@ def run_stage(stage_name, items, subjects_dir, jobs, force, env):
     return failures
 
 
+def fs_build_stamp(fs_home):
+    """FreeSurfer's own version string ($FREESURFER_HOME/build-stamp.txt)."""
+    try:
+        with open(os.path.join(fs_home or "", "build-stamp.txt"), encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def stamps_in(subjects_dir):
+    """{build-stamp: [fs_subject, ...]} for the recons already in SUBJECTS_DIR
+    (recon-all copies the stamp into each subject's scripts/ folder)."""
+    found = {}
+    for stamp_file in Path(subjects_dir).glob("*/scripts/build-stamp.txt"):
+        stamp = stamp_file.read_text(encoding="utf-8", errors="replace").strip()
+        found.setdefault(stamp, []).append(stamp_file.parent.parent.name)
+    return found
+
+
 def write_fs_dataset_description(subjects_dir):
     """Declare the FreeSurfer SUBJECTS_DIR as a BIDS derivatives dataset, and
     .bidsignore the native FreeSurfer files (which are not BIDS-conforming)."""
@@ -188,7 +239,8 @@ def write_fs_dataset_description(subjects_dir):
                 "DatasetType": "derivative",
                 "GeneratedBy": [{
                     "Name": "freesurfer",
-                    "Version": os.environ.get("FREESURFER_HOME", "8"),
+                    "Version": fs_build_stamp(os.environ.get("FREESURFER_HOME"))
+                               or os.environ.get("FREESURFER_HOME", "unknown"),
                     "Description": "recon-all longitudinal stream "
                                    "(cross / base / long).",
                 }],
@@ -215,8 +267,11 @@ def main():
                                                str(paths.FREESURFER_DIR)),
                         help="FreeSurfer SUBJECTS_DIR (default: $SUBJECTS_DIR or "
                              "bids/derivatives/freesurfer, a BIDS derivative).")
-    parser.add_argument("--pial", choices=["flair", "t2", "none"], default="flair",
-                        help="Refine pial surface with FLAIR or T2 (default: flair).")
+    recon_cfg = paths.PROJECT.get("recon", {})
+    parser.add_argument("--pial", choices=["flair", "t2", "none"],
+                        default=recon_cfg.get("pial", "flair"),
+                        help="Refine pial surface with FLAIR or T2 (default: from "
+                             "project.json, else flair).")
     parser.add_argument("--threads", type=int, default=4,
                         help="OpenMP threads PER recon-all (default: 4).")
     parser.add_argument("--jobs", type=int, default=1,
@@ -228,7 +283,11 @@ def main():
                         help="Print the plan; run nothing (no FreeSurfer needed).")
     parser.add_argument("--force", action="store_true",
                         help="Re-run even if recon-all.done exists.")
+    parser.add_argument("--allow-mixed-versions", action="store_true",
+                        help="Run even if SUBJECTS_DIR already holds recons from "
+                             "another FreeSurfer version (not recommended).")
     args = parser.parse_args()
+    extra_flags = recon_cfg.get("flags", [])
 
     if not os.path.isdir(args.input):
         print(f"ERROR: input root not found: {args.input}")
@@ -240,7 +299,7 @@ def main():
         sys.exit(1)
 
     stages = [s.strip() for s in args.stages.split(",") if s.strip()]
-    plan = build_plan(tree, args.subjects_dir, args.pial, args.threads)
+    plan = build_plan(tree, args.subjects_dir, args.pial, args.threads, extra_flags)
 
     print("=" * 70)
     print(" FreeSurfer longitudinal recon plan")
@@ -248,6 +307,8 @@ def main():
     print(f" SUBJECTS_DIR : {args.subjects_dir}")
     print(f" pial refine  : {args.pial}   threads/run: {args.threads}   "
           f"parallel jobs: {args.jobs}")
+    print(f" extra flags  : {' '.join(extra_flags) or '(none)'}   "
+          f"(project {paths.PROJECT_NAME})")
     print("=" * 70)
     for sub in sorted(tree):
         sess = ", ".join(sorted(tree[sub]))
@@ -277,8 +338,24 @@ def main():
     write_fs_dataset_description(args.subjects_dir)
 
     fs_home = env.get("FREESURFER_HOME", "(unset)")
+    current = fs_build_stamp(fs_home)
     print(f"\n using FREESURFER_HOME={fs_home}")
+    print(f" FreeSurfer version: {current or '(unknown: no build-stamp.txt)'}")
     print(f" using recon-all: {shutil.which('recon-all')}\n")
+
+    # One cohort, one FreeSurfer version: volumes and thickness differ between
+    # versions, so mixing them inside one SUBJECTS_DIR is a confound.
+    existing = stamps_in(args.subjects_dir)
+    other = {stamp: subs for stamp, subs in existing.items() if stamp != current}
+    if other:
+        print(" WARNING: SUBJECTS_DIR already holds recons from another "
+              "FreeSurfer version:")
+        for stamp, subs in other.items():
+            print(f"   {stamp}: {len(subs)} subject(s), e.g. {', '.join(sorted(subs)[:3])}")
+        if not args.allow_mixed_versions:
+            print(" Stopping. Use the same FreeSurfer for the whole cohort, or pass "
+                  "--allow-mixed-versions if this is intended.")
+            sys.exit(1)
 
     total_failures = 0
     # Stages MUST run in dependency order: all cross before base, base before long.

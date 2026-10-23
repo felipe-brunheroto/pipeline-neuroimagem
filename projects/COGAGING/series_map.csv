@@ -1,0 +1,39 @@
+match_type,pattern,datatype,suffix,entities,derived,notes
+# COGAGING series rules (same columns as code/series_map.csv). These rows are
+# checked BEFORE the shared map and the built-in keywords, and only for this
+# study. Matched against the lowercased SeriesDescription; first match wins.
+# Translated from the Cog-Aging guide, section 2.9 (what the dcm2bids helper
+# script decided) so both conversions agree. Multi-vendor clinical CDs: Siemens,
+# Philips, GE. Review reports/unknown_series_report.csv after every new CD and
+# add rows here rather than editing code.
+#
+# ---- 1. Not research data: localizers, calibration, screenshots, reports ----
+regex,(^|[^a-z])(loc|localizer|localiser|scout|survey|3[-_ ]?pl(ane)?)([^a-z]|$),misc,,,,localizer / scout
+regex,(^|[^a-z])cal([^a-z]|$)|calibration|coil[-_ ]?survey|refscan,misc,,,,coil calibration
+regex,screen[-_ ]?save|screenshot|captura,misc,,,,screen capture
+substring,phoenixzipreport,misc,,,,Siemens protocol report (not an image)
+# MPR reformats are NOT matched by name ('t1_mpr_sag' can be the real MPRAGE):
+# the classifier sends any ImageType=DERIVED structural image to derivatives.
+regex,(^|[^a-z])(m(in)?ip|mnip)([^a-z]|$),misc,,,,MIP/minIP projection (recalculable)
+#
+# ---- 2. Scanner-derived maps (kept under derivatives/scanner-derived) -------
+regex,colfa|col[-_ ]?fa,dwi,dwi,desc=ColFA,yes,colour FA from the console (fake gradient table on Siemens)
+regex,(dwi|dti|diff).*(^|[^a-z])fa([^a-z]|$),dwi,dwi,desc=FA,yes,FA map from the console
+regex,(^|[^a-z])e?adc([^a-z]|$),dwi,dwi,desc=ADC,yes,ADC / eADC map from the console
+substring,trace,dwi,dwi,desc=traceweighted,yes,trace-weighted image (e.g. DWI 64-ADNI3*_TRACEW)
+substring,mocoseries,func,bold,desc=moco,yes,BOLD realigned on the console
+regex,evaseries|glm|mean_&|t-maps|t_maps,func,bold,desc=stats,yes,fMRI statistics from the console
+substring,perfusion_weighted,perf,,desc=perfusionWeighted,yes,perfusion map from the console
+regex,(^|[^a-z])(rel)?cbf([^a-z]|$),perf,,desc=CBF,yes,CBF map from the console
+#
+# ---- 3. Raw acquisitions -----------------------------------------------------
+regex,(^|[^a-z])asl|arterial[-_ ]spin|pasl|pcasl,perf,asl,,,raw ASL (see guide 2.13 for the metadata it still needs)
+regex,dwi|dti|diff|ep2d_diff,dwi,dwi,,,raw diffusion (64 directions in this cohort)
+regex,bold|fmri|resting|(^|[^a-z])rest([^a-z]|$)|ep2d_fid|fe_epi,func,bold,task=rest,,BOLD is always resting-state in this study
+regex,swan|swi,swi,swi,desc=swi,yes,SWI/SWAN family (same convention as CBR)
+regex,t2\*|t2star|t2_star|hemo,anat,T2starw,,,T2*/GRE haemosiderin-sensitive
+regex,flair|dark[-_ ]?fluid|da-fl|tirm,anat,FLAIR,,,FLAIR (checked before T2 and STIR)
+regex,(^|[^a-z])stir([^a-z]|$),anat,T2w,,,STIR (e.g. hippocampal epilepsy protocol)
+regex,((^|[^a-z])(pos|post|gd|gado|gad)([^a-z]|$)|\+c([^a-z]|$)).*(t1|mprage|ffe|bravo|spgr|tfl)|(t1|mprage|ffe|bravo|spgr|tfl).*((^|[^a-z])(pos|post|gd|gado|gad)([^a-z]|$)|\+c([^a-z]|$)),anat,T1w,ce=gad,,post-contrast T1 (never used for recon)
+regex,mprage|tfl|bravo|fspgr|spgr|t1,anat,T1w,,,T1 (MPRAGE / TFL / BRAVO / FSPGR / FFE)
+regex,(^|[^a-z])t2|tse|space|cube,anat,T2w,,,T2 TSE / SPACE / CUBE

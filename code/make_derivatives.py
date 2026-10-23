@@ -365,15 +365,15 @@ def build_unknown_sourcedata(rows, output_dir, bids_dir):
     return n
 
 
-def _scoped_clean(bids_dir):
+def _scoped_clean(bids_dir, rows):
     """Remove only the subtrees THIS script owns, so a re-run is deterministic
     without disturbing make_bids' raw sub-*, the FreeSurfer/defaced derivatives,
-    or the conversion source. Safe if the folders do not exist yet."""
-    import glob
-    for sub_dir in glob.glob(os.path.join(bids_dir, "derivatives",
-                                          "scanner-derived", "sub-*")):
-        if os.path.isdir(sub_dir):
-            shutil.rmtree(sub_dir)
+    or the conversion source. In scanner-derived/ that means only the sessions
+    listed in provenance.csv: sessions brought in by import_bids.py are kept.
+    Safe if the folders do not exist yet."""
+    for subject, session in {(r["subject"], r["session"]) for r in rows}:
+        shutil.rmtree(os.path.join(bids_dir, "derivatives", "scanner-derived",
+                                   subject, session), ignore_errors=True)
     for name in ("asl", "fmap", "unknown"):
         shutil.rmtree(os.path.join(bids_dir, "sourcedata", name),
                       ignore_errors=True)
@@ -388,7 +388,7 @@ def main():
         sys.exit(1)
 
     rows = mb.load_provenance(output_dir)
-    _scoped_clean(bids_dir)
+    _scoped_clean(bids_dir, rows)
     deriv_dir = os.path.join(bids_dir, "derivatives", "scanner-derived")
 
     print("=" * 70)

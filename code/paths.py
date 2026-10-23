@@ -56,7 +56,9 @@ from pathlib import Path
 # code/  ->  parent is the repository root that holds projects/.
 CODE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CODE_DIR.parent
-PROJECTS_DIR = REPO_ROOT / "projects"
+# PIPELINE_PROJECTS_DIR points the pipeline at another projects/ folder (used by
+# the self-tests, so synthetic data never lands next to real studies).
+PROJECTS_DIR = Path(os.environ.get("PIPELINE_PROJECTS_DIR") or REPO_ROOT / "projects")
 
 
 def available_projects():
@@ -101,9 +103,18 @@ with open(PROJECT_ROOT / "project.json", "r", encoding="utf-8") as _f:
 # Raw DICOM input: one folder per exam. Read-only; the pipeline never writes here.
 PATIENT_FILES = PROJECT_ROOT / "Patient Files"
 
-# BIDS delivered by another team (input "bids" in project.json). Read-only: it
-# still carries site identifiers; import_bids.py builds the de-identified copy.
+# BIDS delivered by another team (import_bids.py). Read-only: it still carries
+# site identifiers; import_bids.py builds the de-identified copy.
 RECEIVED_DIR = PROJECT_ROOT / "sourcedata" / "received"
+
+# Visit number <-> exam date, for projects that number sessions by date order
+# ("sessions": "date_order" in project.json). Dates are identifiers, so this
+# map stays here, outside bids/, and never travels with the dataset.
+SESSION_MAP = PROJECT_ROOT / "sourcedata" / "session_map.tsv"
+
+# Study-specific series rules (same format as code/series_map.csv). Rows here
+# win over the shared map, so one study's scanner names never change another's.
+PROJECT_SERIES_MAP = PROJECT_ROOT / "series_map.csv"
 
 # The single BIDS dataset root: raw + sourcedata/ + derivatives/, OpenNeuro-ready.
 BIDS_ROOT = PROJECT_ROOT / "bids"
@@ -117,6 +128,9 @@ CONVERSION_DIR = BIDS_ROOT / "sourcedata" / "conversion"
 
 # FreeSurfer SUBJECTS_DIR, declared as a BIDS derivative.
 FREESURFER_DIR = BIDS_ROOT / "derivatives" / "freesurfer"
+
+# SAMSEG white-matter lesion runs (T1w + FLAIR), one folder per session.
+SAMSEG_DIR = BIDS_ROOT / "derivatives" / "samseg"
 
 # Generated, shareable deliverables (PDFs, handoff/export bundles). No raw data.
 DELIVERABLE_DIR = PROJECT_ROOT / "deliverable"

@@ -14,7 +14,12 @@ study keeps its data in `projects/<NAME>/` with a `project.json` describing it:
 | Project | Input | Notes |
 |---|---|---|
 | `CBR` (CBR / NEUROCOVID) | DICOM (`projects/CBR/Patient Files/`) | longitudinal structural MRI, SWI, clinical DWI, multi-TI PASL in some exams |
-| `COGAGING` | BIDS delivered by the acquisition team (`projects/COGAGING/sourcedata/received/`) | 3D T1w + FLAIR, 64-dir DWI, resting-state BOLD; imported with `import_bids.py` |
+| `COGAGING` | DICOM from clinical CDs (`projects/COGAGING/Patient Files/`, folder names carry the code, e.g. `GER00039_...`); subjects already converted with dcm2bids enter via `import_bids.py` | multi-vendor; 3D T1w + FLAIR, 64-dir DWI, resting-state BOLD; sessions numbered by exam date; SAMSEG lesions; no defacing yet |
+
+Per-study settings live in `projects/<NAME>/project.json` (input, subject code
+pattern, session numbering, recon-all flags, which steps apply) and
+`projects/<NAME>/series_map.csv` (that study's scanner series names, checked
+before the shared `code/series_map.csv`).
 
 Every command takes **`--project NAME`** (or set `PIPELINE_PROJECT`), e.g.
 `python code/run_recon_long.py --project COGAGING --dry-run`. Paths written as
@@ -47,7 +52,9 @@ path-editing is needed when moving the project.
 | `series_classifier.py` | Shared rules that decide each series' datatype + BIDS suffix. Reads `series_map.csv` first, then built-in keywords; unrecognized → `unknown`. |
 | `series_map.csv` | **Operator-editable** map: teaches the pipeline new series (e.g. a future BOLD study) without code changes. |
 | `dicom_to_bids.py` | Main pipeline: DICOM → NIfTI, sorts to anat/func/dwi/fmap/perf/swi/misc, writes provenance + validation + an **unknown-series report** and a readiness summary. |
-| `import_bids.py` | Step 1 for projects whose input is **BIDS** (e.g. COGAGING): copies the delivered `sub-*` folders into `bids/`, adds the session level (`ses-1`), removes identifier fields from every sidecar, moves scanner-derived images (e.g. TRACEW) to `derivatives/scanner-derived/`, writes the dataset files and checks the result. The delivered copy is never modified. |
+| `import_bids.py` | For subjects delivered **already in BIDS** (COGAGING subjects converted with dcm2bids): copies the delivered `sub-*` folders into `bids/`, numbers visits by date order (`ses-YYYYMM` or no session → `ses-1`, `ses-2`…), removes identifier fields from every sidecar, moves scanner-derived images (e.g. TRACEW) to `derivatives/scanner-derived/`, writes the dataset files and checks the result. The delivered copy is never modified. |
+| `session_map.py` | Visit numbering by exam date for projects with `"sessions": "date_order"`. The date → number map stays in `projects/<NAME>/sourcedata/session_map.tsv`, outside `bids/`; numbers never change, and a new exam older than a numbered one stops the run. |
+| `run_samseg.py` | White-matter lesions with FreeSurfer SAMSEG (T1w + FLAIR registered to T1, `--lesion`, threshold 0.3) into `bids/derivatives/samseg/`, plus `samseg_lesions.tsv` (mm³ and % of intracranial). Needs a native arm64 FreeSurfer (stops under Rosetta). `--dry-run` needs no FreeSurfer. |
 | `deidentify_sidecars.py` | Post-step: strips site/scanner identifiers from JSON sidecars (DICOM PS3.15 Basic Confidentiality Profile). |
 | `make_bids.py` | Builds the validator-clean, FAIR raw BIDS dataset under `bids/`: anatomicals (`T1w`/`T2w`/`FLAIR`) and functional (`bold`, when a task is known). `acq-` preserves the protocol; incomplete BOLD is held under `sourcedata/func/`. |
 | `make_derivatives.py` | Builds `bids/derivatives/scanner-derived/` (ADC, TRACEW, SWI, perfusion maps) and the `bids/sourcedata/` scaffolds for raw ASL (partially filled from the DICOMs) and the phase-only field map, plus quarantined `unknown` series. |
@@ -152,20 +159,26 @@ The data never leaves the machine in any case.
 
 ---
 
-### Projects delivered as BIDS (COGAGING)
+### COGAGING
 
-Steps 1–4 above are replaced by a single import. Put the delivered `sub-*`
-folders in `projects/COGAGING/sourcedata/received/` (read-only from then on),
-then:
+Same steps 1–4 with `--project COGAGING`. Each CD goes in its own folder in
+`projects/COGAGING/Patient Files/`, and the folder name must contain the code
+(`GER00039_...`); nothing else from the folder name is written anywhere.
+Sessions are numbered by exam date. No defacing for now (study decision).
+Then:
 
 ```bash
-python code/import_bids.py --project COGAGING --dry-run   # preview
-python code/import_bids.py --project COGAGING             # build projects/COGAGING/bids
-python code/deface_anat.py --project COGAGING
-python code/run_recon_long.py --project COGAGING --dry-run
+python code/run_recon_long.py --project COGAGING --dry-run   # recon-all -all -qcache -3T (Cog-Aging guide 3.2)
+python code/run_recon_long.py --project COGAGING --jobs 2
+python code/run_samseg.py --project COGAGING                 # lesions (guide section 4)
+python code/extract_fs_stats.py --project COGAGING
 ```
 
-Re-running the import skips subjects already in `bids/` (`--force` rebuilds).
+Subjects already converted with dcm2bids: put their `sub-*` folders in
+`projects/COGAGING/sourcedata/received/` (read-only from then on) and run
+`python code/import_bids.py --project COGAGING`. Re-running skips subjects
+already in `bids/` (`--force` rebuilds). `run_recon_long.py` refuses to mix
+FreeSurfer versions in one SUBJECTS_DIR (`--allow-mixed-versions` overrides).
 
 ## Structural analysis (FreeSurfer 8 — on the dedicated recon Mac)
 

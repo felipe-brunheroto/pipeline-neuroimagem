@@ -26,10 +26,14 @@ Pipeline Neuroimagem/
 │   │   ├── bids/              # THE dataset for this study (see below)
 │   │   ├── archive/           # timestamped backups of previous runs (kept local)
 │   │   └── deliverable/       # generated PDFs + handoff/export bundles (no patient data)
-│   └── COGAGING/              # input: BIDS delivered by the acquisition team
+│   └── COGAGING/              # input: DICOM from clinical CDs (+ legacy dcm2bids BIDS)
 │       ├── project.json
-│       ├── sourcedata/received/   # delivered sub-* folders, untouched (READ-ONLY; site identifiers inside)
-│       └── bids/              # de-identified working dataset built by import_bids.py
+│       ├── series_map.csv     # COGAGING scanner series rules (tracked in git)
+│       ├── Patient Files/     # one folder per CD, name contains the code (GER00039_...). READ-ONLY.
+│       ├── sourcedata/
+│       │   ├── received/      # legacy BIDS from dcm2bids, untouched (READ-ONLY; site identifiers inside)
+│       │   └── session_map.tsv    # exam date <-> ses-N (dates are identifiers: stays here, never in bids/)
+│       └── bids/              # the de-identified dataset
 ├── docs/                      # project documents (summary .docx, notes)
 ├── README.md  QUICKSTART.md  CLAUDE.md  STRUCTURE.md  requirements.txt
 ```
@@ -49,7 +53,8 @@ bids/
 └── derivatives/
     ├── scanner-derived/    # ADC, TRACEW, SWI family, perfusion maps
     ├── defaced/            # face-masked anatomicals (desc-defaced)
-    └── freesurfer/         # recon-all output (+ stats/, logs/)
+    ├── freesurfer/         # recon-all output (+ stats/, logs/)
+    └── samseg/             # SAMSEG lesions per session + samseg_lesions.tsv
 ```
 
 > **code travels, data does not.** `code/`, `Pipeline_Alunos/`, the
@@ -65,7 +70,7 @@ needed. Paths in this table are relative to `projects/<NAME>/`.
 
 | # | Step (script) | Reads | Writes |
 |---|---------------|-------|--------|
-| 1 | `import_bids.py` (BIDS-input projects; replaces steps 1–4) | `sourcedata/received/` | `bids/sub-*` (with `ses-1`, de-identified) + `bids/derivatives/scanner-derived/` + dataset metadata |
+| 1b | `import_bids.py` (subjects delivered already in BIDS) | `sourcedata/received/` | `bids/sub-*` (ses-N by date, de-identified) + `bids/derivatives/scanner-derived/` + dataset metadata |
 | 1 | `dicom_to_bids.py` | `Patient Files/` | `bids/sourcedata/conversion/` (NIfTIs, `provenance.csv`, `validation_report.csv`, `reports/`) |
 | 2 | `deidentify_sidecars.py` | `bids/sourcedata/conversion/` | same (scrubs `*.json` in place; writes `deidentification_log.txt`) |
 | 3 | `make_bids.py` | `…/conversion/provenance.csv` | `bids/sub-*` (raw anat/func) + dataset metadata |
@@ -73,6 +78,7 @@ needed. Paths in this table are relative to `projects/<NAME>/`.
 | 5 | `deface_anat.py` | `bids/sub-*` | `bids/derivatives/defaced/` |
 | 6 | `run_recon_long.py` | `bids/` (or `…/defaced`) | `bids/derivatives/freesurfer/` |
 | 7 | `extract_fs_stats.py` | `bids/derivatives/freesurfer/` | `bids/derivatives/freesurfer/stats/` |
+| 8 | `run_samseg.py` (COGAGING) | `bids/sub-*` (T1w + FLAIR) | `bids/derivatives/samseg/` + `samseg_lesions.tsv` |
 | — | `export_openneuro.py` | `bids/` | validation report + (optional) `deliverable/bids_openneuro/` |
 
 Re-running steps 3 and 4 is **safe**: each rebuilds only the subtree it owns and

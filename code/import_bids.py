@@ -4,19 +4,23 @@ import_bids.py
 
 PURPOSE
 -------
-For a project whose images arrive ALREADY CONVERTED to BIDS by another team
-(``"input": "bids"`` in projects/<NAME>/project.json), this is step 1: it takes
-the delivered subject folders and builds this project's de-identified BIDS
-dataset, ready for defacing and FreeSurfer (steps 5-7).
+For images that arrive ALREADY CONVERTED to BIDS by another team (projects
+with ``"input": "bids"`` or ``"bids_import": true`` in project.json, e.g.
+COGAGING subjects converted with dcm2bids before this pipeline existed), this
+takes the delivered subject folders and builds this project's de-identified
+BIDS dataset, ready for FreeSurfer (steps 6-8).
 
 The delivered copy in ``projects/<NAME>/sourcedata/received/`` is READ-ONLY: it
 is never modified, so the import can always be redone from it.
 
 WHAT IT DOES, per delivered sub-* folder
 ----------------------------------------
-  1. Session level: if the subject has no ses-* folder, its files are filed
-     under the project's ``default_session`` (e.g. ses-1) and the label is
-     added to every file name (sub-X_acq-3d_T1w -> sub-X_ses-1_acq-3d_T1w).
+  1. Session level: visits are numbered ses-1, ses-2, ... by date order,
+     through the same session map as dicom_to_bids.py (session_map.py). A
+     delivered ``ses-YYYYMM`` becomes ses-N (the date stays only in the map,
+     outside bids/); a subject delivered without sessions becomes ses-1. The
+     label is written into every file name (sub-X_acq-3d_T1w ->
+     sub-X_ses-1_acq-3d_T1w).
   2. De-identification: every JSON sidecar loses the identifier fields listed
      in make_bids.IDENTIFIER_FIELDS (institution, station, device serial,
      StudyDescription, patient fields...). Values are never logged.
@@ -52,6 +56,7 @@ from datetime import datetime
 
 import make_bids as mb
 import paths
+import session_map
 
 IMAGE_EXT = (".nii.gz", ".nii")
 SIDE_EXT = (".json", ".bval", ".bvec", ".tsv")
@@ -65,10 +70,28 @@ def split_ext(name):
 
 
 def add_session(stem, sub, ses):
-    """'sub-X_acq-3d_T1w' -> 'sub-X_ses-1_acq-3d_T1w' (unchanged if ses- present)."""
-    if "_ses-" in stem:
-        return stem
+    """'sub-X_acq-3d_T1w' or 'sub-X_ses-202502_acq-3d_T1w' -> 'sub-X_ses-1_acq-3d_T1w'."""
+    stem = re.sub(rf"^{re.escape(sub)}_ses-[a-zA-Z0-9]+", sub, stem)
     return stem.replace(sub, f"{sub}_{ses}", 1)
+
+
+def delivered_exams(sub_dir):
+    """
+    The delivered visits of one subject, as session_map.assign() expects:
+    (delivered_label_or_None, subject, date, uid). A delivered 'ses-202502'
+    carries its date in the label; a subject without sessions has one undated
+    visit.
+    """
+    sub = os.path.basename(sub_dir)
+    labels = sorted(n for n in os.listdir(sub_dir) if n.startswith("ses-"))
+    if not labels:
+        return [(None, sub, "", f"imported:{sub}")]
+    out = []
+    for label in labels:
+        digits = re.fullmatch(r"ses-(\d{6,8})", label)
+        out.append((label, sub, digits.group(1) if digits else "",
+                    f"imported:{sub}:{label}"))
+    return out
 
 
 def add_desc(stem, desc):
@@ -97,10 +120,12 @@ def scrub(sidecar):
     return removed
 
 
-def plan_subject(sub_dir, default_session):
+def plan_subject(sub_dir, session_for):
     """
     Return a list of (src, dest_rel, kind) for one delivered subject.
     kind: 'raw' | 'derived' | 'drop'. dest_rel is relative to the BIDS root.
+    session_for maps a delivered session label (None = no session level) to
+    this dataset's ses-N.
     """
     sub = os.path.basename(sub_dir)
     has_sessions = any(n.startswith("ses-") for n in os.listdir(sub_dir))
@@ -108,7 +133,7 @@ def plan_subject(sub_dir, default_session):
                 if has_sessions else [None])
     plan = []
     for ses_name in sessions:
-        ses = ses_name or default_session
+        ses = session_for[ses_name]
         ses_dir = os.path.join(sub_dir, ses_name) if ses_name else sub_dir
         for datatype in sorted(os.listdir(ses_dir)):
             dt_dir = os.path.join(ses_dir, datatype)
@@ -257,13 +282,12 @@ def main():
                         help="Rebuild subjects that already exist in bids/.")
     args = parser.parse_args()
 
-    if paths.PROJECT.get("input") != "bids":
-        sys.exit(f"ERROR: project {paths.PROJECT_NAME} takes DICOM input; "
+    if paths.PROJECT.get("input") != "bids" and not paths.PROJECT.get("bids_import"):
+        sys.exit(f"ERROR: project {paths.PROJECT_NAME} takes DICOM input only; "
                  "use dicom_to_bids.py (step 1) instead.")
     source = args.source
     if not os.path.isdir(source):
         sys.exit(f"ERROR: source folder does not exist: {source}")
-    default_session = paths.PROJECT.get("default_session", "ses-1")
     prefix = paths.PROJECT.get("subject_prefix", "")
     bids_dir = str(paths.BIDS_ROOT)
 
@@ -282,6 +306,25 @@ def main():
            f"identifier fields removed (values not recorded): "
            + ", ".join(mb.IDENTIFIER_FIELDS),
            "-" * 60]
+    # Number every delivered visit first (idempotent: visits already in the
+    # session map keep their number), so the map also covers skipped subjects.
+    exams = [e for sub in subjects for e in delivered_exams(os.path.join(source, sub))]
+    if args.dry_run:
+        known = {r["study_uid"]: r["session"]
+                 for r in session_map.load(str(paths.SESSION_MAP))}
+        sessions = {}
+        for key, sub, _date, uid in exams:
+            n = sum(1 for k, v in sessions.items() if k[0] == sub)
+            sessions[(sub, key)] = known.get(uid, f"ses-{n + 1} (provisional)")
+    else:
+        assigned, problems = session_map.assign(
+            [((sub, key), sub, date, uid) for key, sub, date, uid in exams],
+            str(paths.SESSION_MAP))
+        if problems:
+            sys.exit("ERROR: " + "\nERROR: ".join(problems)
+                     + "\nNothing was imported; session numbers were not changed.")
+        sessions = {k: ses for k, (_sub, ses) in assigned.items()}
+
     imported, skipped = [], []
     counts = {"raw": 0, "derived": 0, "drop": 0}
     for sub in subjects:
@@ -289,7 +332,9 @@ def main():
             skipped.append(sub)
             log.append(f"{sub}: already in bids/ (use --force to rebuild) - skipped")
             continue
-        plan = plan_subject(os.path.join(source, sub), default_session)
+        session_for = {key: ses.split(" ")[0] for (s, key), ses in sessions.items()
+                       if s == sub}
+        plan = plan_subject(os.path.join(source, sub), session_for)
         for src, rel, kind in plan:
             counts[kind] += 1
             if kind == "drop":

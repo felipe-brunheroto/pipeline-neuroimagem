@@ -254,16 +254,22 @@ def classify(description, image_type="", modality="", sequence="",
         series_map = load_series_map()
 
     desc_lc = (description or "").lower()
-    itype_lc = (image_type or "").lower()
+    # Tolerate a list rendered as text ("['DERIVED', ...]") in older provenance.
+    itype_lc = (image_type or "").lower().lstrip("[(\"' ")
 
     # ---- 1) operator map wins ------------------------------------------------
     for rule in series_map:
         if _row_matches(rule, desc_lc):
+            entities, derived = dict(rule["entities"]), rule["derived"]
+            # Same DERIVED net as the built-in anat rule below: a structural
+            # reformat whose name looks like an acquisition stays out of raw anat.
+            if rule["datatype"] == "anat" and not derived and itype_lc.startswith("derived"):
+                entities, derived = dict(entities, desc="reformat"), True
             return Classification(
                 datatype=rule["datatype"],
                 suffix=rule["suffix"],
-                entities=dict(rule["entities"]),
-                derived=rule["derived"],
+                entities=entities,
+                derived=derived,
                 source="series_map",
                 reason=f"matched series_map ({rule['match_type']}: {rule['pattern']})",
             )
@@ -310,6 +316,13 @@ def classify(description, image_type="", modality="", sequence="",
                               source="builtin", reason="BOLD/func signal")
     suffix = anat_suffix(desc_lc)
     if suffix is not None:
+        # A DERIVED structural image is a scanner reformat/projection (MPR,
+        # "CORONAL CRANIO" from the 3D T1, MIP...), not an acquisition: keep it
+        # out of raw anat so recon never picks it as the subject's T1.
+        if itype_lc.startswith("derived"):
+            return Classification("anat", suffix, entities={"desc": "reformat"},
+                                  derived=True, source="builtin",
+                                  reason="anatomical keyword, ImageType DERIVED")
         return Classification("anat", suffix, source="builtin",
                               reason="anatomical keyword")
     if any(k in desc_lc for k in SCOUT_KEYWORDS):

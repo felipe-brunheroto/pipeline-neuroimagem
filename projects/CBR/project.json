@@ -2,7 +2,10 @@
   "name": "CBR",
   "title": "CBR / NEUROCOVID",
   "description": "Chemobrain cohort: longitudinal structural MRI (Siemens Skyra 3T), with SWI, clinical DWI and, in some exams, multi-TI PASL.",
-  "subject_prefix": "CBR",
   "input": "dicom",
-  "sessions": "Visit index from the exam folder suffix: CBR-003 -> ses-1 (baseline), CBR-003.2 -> ses-2 (6 months), CBR-003.3 -> ses-3 (12 months)."
+  "subject_prefix": "CBR",
+  "sessions": "folder_suffix",
+  "sessions_note": "Visit index from the exam folder suffix: CBR-003 -> ses-1 (baseline), CBR-003.2 -> ses-2 (6 months), CBR-003.3 -> ses-3 (12 months).",
+  "recon": {"pial": "flair", "flags": []},
+  "steps": {"deface": true, "samseg": false}
 }

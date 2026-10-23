@@ -43,6 +43,7 @@ ARQ_PROJETO = AQUI / "projeto_atual.txt"
 # escolher_projeto() ao abrir o menu.
 PROJETO = None
 ENTRADA = "dicom"
+CONF = {}
 
 
 def listar_projetos():
@@ -110,7 +111,24 @@ PASSOS = [
      "por regiao do cerebro), prontas para abrir no Excel ou para estatistica. "
      "Este e o produto final desta etapa do treinamento.",
      True),
+    ("8", "Lesoes de substancia branca (SAMSEG)", "run_samseg.py",
+     "Mede o volume das lesoes (hiperintensidades) de substancia branca com o "
+     "SAMSEG, usando o T1 e a FLAIR de cada exame. Alinha a FLAIR ao T1, roda o "
+     "SAMSEG e gera a tabela samseg_lesions.tsv (volume em mm3 e % do "
+     "intracraniano). Uns 5 minutos por exame. Precisa do FreeSurfer nativo do "
+     "Mac Mini. Depois, faca o QC visual que o programa mostra no final.",
+     True),
 ]
+
+# Estudos com sujeitos que ja chegaram convertidos (dcm2bids, antes deste
+# pipeline) podem importar esse BIDS com o item I.
+PASSO_IMPORTAR = (
+    "I", "Importar BIDS ja convertido (dcm2bids)", "import_bids.py",
+    "Traz para o estudo os sujeitos que a equipe ja tinha convertido para BIDS "
+    "(pasta sourcedata/received do estudo): numera as sessoes por data, apaga "
+    "os campos de instituicao/equipamento dos .json e separa as imagens que o "
+    "scanner ja processou (ex.: TRACEW). NUNCA altera a copia recebida.",
+    False)
 
 # Nos estudos que ja chegam em BIDS, o passo 1 e a importacao, e os passos 2-4
 # (desidentificar, montar BIDS, derivados) ja estao incluidos nela.
@@ -125,10 +143,24 @@ SO_DICOM = {"2", "3", "4"}
 
 
 def passos_do_projeto():
-    """A lista de passos do estudo atual (depende de como os dados chegam)."""
-    if ENTRADA != "bids":
-        return PASSOS
-    return [PASSO_1_BIDS if p[0] == "1" else p for p in PASSOS if p[0] not in SO_DICOM]
+    """A lista de passos do estudo atual (depende de project.json: como os dados
+    chegam e quais etapas o estudo usa)."""
+    etapas = CONF.get("steps", {})
+    lista = []
+    for p in PASSOS:
+        if p[0] == "5" and not etapas.get("deface", True):
+            continue
+        if p[0] == "8" and not etapas.get("samseg", False):
+            continue
+        if ENTRADA == "bids":
+            if p[0] in SO_DICOM:
+                continue
+            if p[0] == "1":
+                p = PASSO_1_BIDS
+        lista.append(p)
+    if ENTRADA != "bids" and CONF.get("bids_import"):
+        lista.append(PASSO_IMPORTAR)
+    return lista
 
 
 # Apenas o passo 1 (conversao) precisa saber onde estao os DICOM. Os demais leem
@@ -375,7 +407,7 @@ def escolher_projeto(perguntar=False):
     varios, usa o ultimo escolhido (projeto_atual.txt), ou pergunta quando
     'perguntar' for True ou ainda nao houver escolha.
     """
-    global PROJETO, ENTRADA
+    global PROJETO, ENTRADA, CONF
     projetos = listar_projetos()
     if not projetos:
         print(f"\n  [erro] nenhum estudo encontrado em {PROJETOS}.")
@@ -404,7 +436,8 @@ def escolher_projeto(perguntar=False):
         else:
             print("  Opcao invalida. Tente de novo.")
     PROJETO = escolhido
-    ENTRADA = projetos[escolhido].get("input", "dicom")
+    CONF = projetos[escolhido]
+    ENTRADA = CONF.get("input", "dicom")
     try:
         ARQ_PROJETO.write_text(PROJETO + "\n", encoding="utf-8")
     except Exception:
@@ -415,12 +448,14 @@ def cabecalho():
     print("\n" + "=" * 68)
     print(f"  PIPELINE DE NEUROIMAGEM - estudo {PROJETO} (menu guiado)")
     print("=" * 68)
+    etapas = CONF.get("steps", {})
+    face = "remocao facial -> " if etapas.get("deface", True) else ""
+    lesoes = " + LESOES (SAMSEG)" if etapas.get("samseg", False) else ""
     if ENTRADA == "bids":
         print("  Mapa:  BIDS recebido -> importar e desidentificar ->")
-        print("         remocao facial -> FreeSurfer -> VOLUMES")
     else:
         print("  Mapa:  DICOM -> NIfTI -> desidentificar -> BIDS -> derivados ->")
-        print("         remocao facial -> FreeSurfer -> VOLUMES")
+    print(f"         {face}FreeSurfer -> VOLUMES{lesoes}")
     print("  Dica:  faca os passos em ordem (0,1,2,...). Em caso de duvida,")
     print("         leia o GUIA_DO_ALUNO.pdf ou chame o responsavel.")
     print("=" * 68)
@@ -449,7 +484,7 @@ def menu():
 
 
 def rodar_passo(num):
-    passo = next((p for p in passos_do_projeto() if p[0] == num), None)
+    passo = next((p for p in passos_do_projeto() if p[0].lower() == num), None)
     if passo is None:
         print("  Opcao invalida. Tente de novo.")
         return
@@ -505,9 +540,9 @@ def rodar_passo(num):
 
 def main():
     if "--list" in sys.argv:        # modo de teste: mostra o menu de cada estudo e sai
-        global PROJETO, ENTRADA
+        global PROJETO, ENTRADA, CONF
         for nome, conf in listar_projetos().items():
-            PROJETO, ENTRADA = nome, conf.get("input", "dicom")
+            PROJETO, CONF, ENTRADA = nome, conf, conf.get("input", "dicom")
             menu()
         return
     escolher_projeto()
