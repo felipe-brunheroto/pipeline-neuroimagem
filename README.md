@@ -61,7 +61,12 @@ path-editing is needed when moving the project.
 | `deface_anat.py` | Defaces the anatomicals (T1/T2/FLAIR) with FreeSurfer `mideface`, reading `bids/` and writing `bids/derivatives/defaced/` with `desc-defaced` names + a derivatives `dataset_description.json`. Needs FreeSurfer 7.3+. Run AFTER `make_bids.py`. |
 | `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**): plans + runs the longitudinal stream (cross → base → long) into `bids/derivatives/freesurfer/`. `--dry-run` needs no FreeSurfer. |
 | `extract_fs_stats.py` | Final step: wraps `asegstats2table`/`aparcstats2table` into tidy tables under `bids/derivatives/freesurfer/stats/`. `--dry-run` prints the plan. |
-| `Pipeline_Alunos/` | **Student teaching package** (Brazilian Portuguese, non-programmer-friendly): double-click `iniciar.command` → guided menu (`passos.py`) that runs each step; `GUIA_DO_ALUNO.pdf` walkthrough; FAIR/safety notes. Runs with no Claude account. |
+| `run_batch.py` | **Unattended processing** (Mac Mini, nightly): runs every step that applies to the project, in order, only for new or unfinished work; safe to re-run at any time. Lock, per-run logs and an end-of-run summary in `projects/<NAME>/logs/batch/`. See [Unattended batch](#unattended-batch-mac-mini). |
+| `install_schedule.py` | Installs/removes the nightly launchd job (`~/Library/LaunchAgents/…plist`) that runs `run_batch.py`; `--watch` also runs it when a CD folder is added. |
+| `qc_status.py` | The visual-QC record (`bids/derivatives/qc/qc_status.tsv`): what is finished but not reviewed, the freeview command for it, and pass/fail decisions. Used by the batch summary and the student menu. |
+| `batch_lock.py` | The machine-wide lock (an OS file lock, released even by a crashed run) that keeps two batches from overlapping. |
+| `Pipeline_Alunos/` | **Student teaching package** (Brazilian Portuguese, non-programmer-friendly): double-click `iniciar.command` → guided menu (`passos.py`) whose first items are the work that needs a person — R: last batch summary in plain Portuguese, C: visual QC in freeview with pass/fail recorded, S: teach an unknown series (validated `series_map.csv` row) — followed by the numbered steps for one-off runs; `GUIA_DO_ALUNO.pdf` walkthrough; FAIR/safety notes. Runs with no Claude account. |
+| `tests/` | Self-tests on synthetic data only (fake DICOMs written with pydicom at test time, stub FreeSurfer commands): `python -m pip install pytest` then `python -m pytest tests -q`. Never point them at real data. |
 | `requirements.txt` | Python dependencies, pinned to validated versions. |
 | `CLAUDE.md` | Safety/ethics rules for the project. |
 | `.gitignore` | Safety net: blocks git from ever tracking patient data. |
@@ -219,6 +224,75 @@ Then review, in `bids/sourcedata/conversion/`:
 
 **Treat steps 1 + 2 as one pipeline.** Data is not "shareable/de-identified"
 until step 2 has run and an audit shows zero identifying fields.
+
+---
+
+## Unattended batch (Mac Mini)
+
+With ~74 COGAGING subjects arriving over time, nobody should have to sit in
+front of recon-all. `run_batch.py` runs **everything that is pending, in
+order, and nothing else**, and is safe to re-run at any time:
+
+```bash
+python3 code/run_batch.py --project COGAGING --dry-run   # what would run (changes nothing)
+python3 code/run_batch.py --project COGAGING             # run it now (FreeSurfer loaded)
+python3 code/install_schedule.py --project COGAGING --at 22:30           # every night
+python3 code/install_schedule.py --project CBR --at 23:30                # queues behind COGAGING
+python3 code/install_schedule.py --project COGAGING --at 22:30 --watch   # + when a CD is added
+python3 code/install_schedule.py --project COGAGING --uninstall
+```
+
+- **Steps** (those that apply per `project.json`): import (`bids_import`) →
+  convert (`dicom_to_bids.py --only-new`) → deidentify → make_bids →
+  make_derivatives → deface (`steps.deface`) → SAMSEG (`steps.samseg`) →
+  recon (cross → base → long) → FreeSurfer tables. SAMSEG does not wait for
+  recon. A failed step blocks only what needs its output (a failed
+  de-identification blocks BIDS; a session-order stop on one new CD does not
+  stop the recon of exams already in `bids/`).
+- **Only new or unfinished work.** What is pending is read from the outputs
+  every run (`provenance.csv`, `recon-all.done`, `samseg.stats`, …), so a
+  crash or a stop just resumes next run; a second run with nothing new changes
+  nothing. New CD folders in `Patient Files/` are picked up by the next run; a
+  folder changed in the last 30 min (`--settle-minutes`) is left for the next
+  one (still being copied). After a rule is added for an unknown series, the
+  exams that had it are converted again automatically.
+- **Retries.** A failed item is retried on the next run. An unfinished
+  recon-all folder is moved to `bids/derivatives/freesurfer/.failed/` (latest
+  attempt kept) and restarted, because recon-all refuses `-i` on an existing
+  subject. After `--max-attempts` failures (default 3) a recon/SAMSEG run is
+  left out and listed for a person; `--retry-failed` tries again.
+- **One at a time.** A machine-wide lock (`projects/.batch.lock`) refuses a
+  second run (`--wait MINUTES` queues instead; the nightly jobs use 12 h).
+- **Refuses to start** when FreeSurfer is not loaded or has no license
+  (`--no-freesurfer` runs only the conversion/BIDS steps), when SAMSEG would run
+  on an Intel FreeSurfer under Rosetta, or with less than `--min-free-gb`
+  (default 50) free. The batch always passes `--subjects-dir
+  bids/derivatives/freesurfer`, so the `SUBJECTS_DIR` set by
+  `SetUpFreeSurfer.sh` is never used by mistake.
+- **Parallelism (64 GB).** recon-all: `--threads 2` and as many jobs as the
+  performance cores and ~8 GB per job allow (4–5 on the M4 Pro); SAMSEG: 4
+  threads, ~12 GB per job. Override with `--jobs/--threads/--samseg-jobs/--samseg-threads`.
+- **Awake only while running:** `caffeinate -is -w <pid>` for the run's
+  lifetime. A sleeping Mac runs a missed nightly job when it wakes; to wake it,
+  `sudo pmset repeat wakeorpoweron MTWRFSU 22:25:00` (printed by the installer).
+- **Logs and summary** in `projects/<NAME>/logs/batch/` (git-ignored, kept
+  local): `<run>/batch.log`, one `NN_<step>.log` per step, `summary.md` +
+  `summary.tsv` (what ran, what was skipped, what failed and why, and what
+  needs a person: unknown series, MISMATCH rows, session-order stops, items that
+  gave up, QC failures, QC to do), `last_summary.md/.tsv`, `state.json`,
+  `launchd.log`. Only study codes appear; for COGAGING every piece of an exam
+  folder name (where a patient name may be) is masked in the step logs.
+- Exit code: 0 done (items for a person may remain), 1 a step failed, 2 refused,
+  3 another batch is running.
+
+**Batch or menu?** The batch is for the long, repetitive work on the Mac Mini
+(conversion, BIDS, SAMSEG, recon, tables), nightly and unattended. The student
+menu (`Pipeline_Alunos/iniciar.command`) is for what needs a person: reading
+the last summary (item R), visual QC in freeview with pass/fail recorded in
+`bids/derivatives/qc/qc_status.tsv` (item C), and teaching the pipeline an
+unknown series by adding a validated row to `projects/<NAME>/series_map.csv`
+(item S). Its numbered steps remain for one-off runs when asked, and refuse to
+start while a batch is running.
 
 ---
 

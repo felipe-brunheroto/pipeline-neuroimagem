@@ -18,6 +18,16 @@ COMECE ASSIM (2 passos):
      clique com o botão direito em iniciar.command -> Abrir -> Abrir.
      (Só na primeira vez.)
 
+O QUE E O SEU TRABALHO AGORA:
+  O computador (Mac Mini) roda sozinho, toda noite, as etapas
+  longas: conversao, BIDS, FreeSurfer e SAMSEG. Voce cuida do
+  que precisa de uma pessoa, pelo menu:
+    R) ler o resumo da ultima rodada (o que rodou, o que falhou)
+    C) conferir a qualidade (QC) das imagens prontas no freeview
+       e marcar aprovado/reprovado
+    S) ensinar ao pipeline uma serie que ele nao reconheceu
+  Os passos 0-8 continuam no menu para quando o responsavel pedir.
+
 ONDE FICAM OS EXAMES (DICOM):
   O passo 1 procura, por padrão, na pasta "Patient Files" ao lado
   do projeto. Se os SEUS dados estiverem em outro lugar (outro HD,

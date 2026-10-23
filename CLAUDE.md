@@ -36,6 +36,11 @@ Main scripts (already written and tested):
                             de-identified `bids/` from the delivered copy.
 - `code/run_recon_long.py`     — FreeSurfer recon-all (flags per project.json).
 - `code/run_samseg.py`         — SAMSEG white-matter lesions (COGAGING).
+- `code/run_batch.py`          — unattended run of every pending step (lock,
+                            logs + summary in `projects/<NAME>/logs/batch/`);
+                            `code/install_schedule.py` schedules it nightly.
+- `tests/`                     — self-tests on SYNTHETIC data only (generated at
+                            test time under a temp `PIPELINE_PROJECTS_DIR`).
 
 ## SAFETY AND ETHICS RULES — do not break these
 1. **This is real patient MRI data.** It must stay on this computer.

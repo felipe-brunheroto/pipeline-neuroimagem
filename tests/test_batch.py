@@ -317,13 +317,17 @@ def test_keeps_the_mac_awake_only_while_running(cog):
 def test_new_cd_is_picked_up_and_copies_in_progress_wait(cog):
     assert batch(cog).returncode == 0
     pf = cog["project"] / "Patient Files"
+    # Someone browses a converted CD in Finder: it must not look "being copied".
+    (pf / s.exam_folder_name("GER00039", "20120304") / ".DS_Store").write_bytes(b"x")
     s.make_exam(str(pf / s.exam_folder_name("GER00042", "20140910")), s.COG_SERIES,
                 "20140910", age_seconds=0)               # still "being copied"
     r = batch(cog)
     assert r.returncode == 0
     rows = summary(cog)
     assert steps(rows)["convert"] == "skipped"
-    assert any(r["step"] == "copy-in-progress" for r in rows if r["section"] == "human")
+    copying = [r["item"] for r in rows
+               if r["section"] == "human" and r["step"] == "copy-in-progress"]
+    assert copying == ["exam folder #4"]
     s.age(str(pf / s.exam_folder_name("GER00042", "20140910")), 7200)
     n_calls = len(calls(cog))
     r = batch(cog)

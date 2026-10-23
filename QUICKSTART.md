@@ -67,6 +67,18 @@ freeview ...                          # visual surface check; note the Euler num
 python3 code/extract_fs_stats.py --project CBR      # -> tidy tables in bids/derivatives/freesurfer/stats/
 ```
 
+**5. Or let the Mac Mini do all of it, every night** (only new or unfinished work)
+```bash
+python3 code/run_batch.py --project COGAGING --dry-run            # what is pending
+python3 code/run_batch.py --project COGAGING                      # run it now
+python3 code/install_schedule.py --project COGAGING --at 22:30    # nightly (launchd)
+python3 code/install_schedule.py --project CBR --at 23:30         # queues behind it
+```
+Each run leaves `projects/<NAME>/logs/batch/last_summary.md` (what ran, what
+failed and why, what needs a person, QC to do). Students read it, do the QC and
+teach unknown series from their menu (items R, C, S). On the conversion Mac (no
+FreeSurfer) use `--no-freesurfer`. Details: README, "Unattended batch".
+
 ---
 
 ## Notes
