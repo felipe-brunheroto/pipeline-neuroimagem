@@ -54,6 +54,7 @@ import paths
 import run_recon_long as rrl
 
 LESION_LABEL = "99"
+DEFAULT_THRESHOLD = 0.3
 TABLE_FIELDS = ["subject", "session", "lesion_mm3", "intracranial_mm3",
                 "lesion_pct_icv", "threshold", "freesurfer_version"]
 
@@ -105,9 +106,21 @@ def commands(t1, flair, out_dir, threshold, threads):
     ]
 
 
+def apple_silicon():
+    """True on an Apple-Silicon Mac, also when this Python itself is an Intel
+    build running under Rosetta (platform.machine() then says x86_64)."""
+    if platform.machine() == "arm64":
+        return True
+    try:
+        return subprocess.run(["sysctl", "-n", "sysctl.proc_translated"],
+                              capture_output=True, text=True).stdout.strip() == "1"
+    except Exception:
+        return False
+
+
 def rosetta_freesurfer(fs_home):
     """True when an Intel (x86_64-only) FreeSurfer is used on Apple Silicon."""
-    if platform.machine() != "arm64":
+    if not apple_silicon():
         return False
     binary = os.path.join(fs_home or "", "bin", "mri_coreg")
     try:
@@ -197,7 +210,7 @@ def main():
         description="White-matter lesions with FreeSurfer SAMSEG (T1w + FLAIR).")
     parser.add_argument("--input", default=str(paths.BIDS_ROOT),
                         help="BIDS root with sub-*/ses-*/anat (default: the project's bids/).")
-    parser.add_argument("--threshold", type=float, default=0.3,
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
                         help="Lesion posterior threshold (default 0.3; higher = "
                              "fewer false positives).")
     parser.add_argument("--threads", type=int, default=8,
@@ -208,7 +221,11 @@ def main():
                         help="Print the plan; run nothing (no FreeSurfer needed).")
     parser.add_argument("--force", action="store_true",
                         help="Re-run sessions that are already finished.")
+    parser.add_argument("--exclude", default="",
+                        help="Comma list of sessions (sub-X_ses-Y) to leave out of "
+                             "this run; used by run_batch.py for runs that keep failing.")
     args = parser.parse_args()
+    excluded = {s.strip() for s in args.exclude.split(",") if s.strip()}
 
     tree = rrl.discover(args.input)
     samseg_dir = str(paths.SAMSEG_DIR)
@@ -218,6 +235,8 @@ def main():
             anat = tree[sub][ses]
             if not anat.get("T1w") or not anat.get("FLAIR"):
                 missing.append(f"{sub}/{ses}")
+                continue
+            if f"{sub}_{ses}" in excluded:
                 continue
             out_dir = os.path.join(samseg_dir, f"{sub}_{ses}")
             item = (sub, ses, anat["T1w"], anat["FLAIR"], out_dir)

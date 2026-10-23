@@ -22,21 +22,44 @@ em local_dos_dados_<ESTUDO>.txt para a proxima vez. Nos estudos que ja chegam
 em BIDS (ex.: COGAGING), o passo 1 importa a pasta
 projects/<ESTUDO>/sourcedata/received.
 
+O QUE PRECISA DE VOCE: as etapas longas (conversao, BIDS, FreeSurfer, SAMSEG)
+rodam sozinhas toda noite no Mac Mini (code/run_batch.py). O seu trabalho e o
+que so uma pessoa faz: ler o resumo da ultima rodada (item R), conferir a
+qualidade das imagens prontas no freeview (item C, grava aprovado/reprovado em
+bids/derivatives/qc/qc_status.tsv) e ensinar ao pipeline as series que ele nao
+reconheceu (item S, acrescenta uma regra em projects/<ESTUDO>/series_map.csv).
+Os passos 0-8 continuam no menu para rodar a mao quando o responsavel pedir.
+
 Como abrir: de DOIS cliques em "iniciar.command" (na mesma pasta), ou rode
     python3 passos.py
 """
 
+import csv
 import json
 import os
+import re
+import shlex
+import shutil
 import sys
 import subprocess
+from datetime import date
 from pathlib import Path
 
 # A pasta do projeto e a pasta de cima (Pipeline_Alunos fica dentro do projeto).
 RAIZ = Path(__file__).resolve().parent.parent
 AQUI = Path(__file__).resolve().parent
-PROJETOS = RAIZ / "projects"
-ARQ_PROJETO = AQUI / "projeto_atual.txt"
+# PIPELINE_PROJECTS_DIR aponta para outra pasta de estudos (usado nos testes);
+# nesse caso o que o menu lembra (estudo, pasta de dados) fica la, nao aqui.
+PROJETOS = Path(os.environ.get("PIPELINE_PROJECTS_DIR") or RAIZ / "projects")
+ESTADO = PROJETOS if os.environ.get("PIPELINE_PROJECTS_DIR") else AQUI
+ARQ_PROJETO = ESTADO / "projeto_atual.txt"
+
+# Ferramentas sem dados que ficam em code/ e o menu tambem usa: o registro de
+# QC, as regras de series e a trava do processamento automatico.
+sys.path.insert(0, str(RAIZ / "code"))
+import batch_lock            # noqa: E402
+import qc_status             # noqa: E402
+import series_classifier as sc   # noqa: E402
 
 # Estudo em uso (nome da pasta em projects/) e a forma como os dados chegam:
 # "dicom" (convertemos) ou "bids" (ja convertidos; importamos). Definidos por
@@ -64,7 +87,23 @@ def padrao_dados():
 
 def arq_local():
     """Onde guardamos a pasta escolhida pelo aluno (so um caminho; sem dados)."""
-    return AQUI / f"local_dos_dados_{PROJETO}.txt"
+    return ESTADO / f"local_dos_dados_{PROJETO}.txt"
+
+
+_CAMINHOS = {}
+
+
+def caminhos():
+    """Onde fica cada coisa do estudo atual (bids/, logs/batch/, QC...). Quem
+    sabe e o code/paths.py (a unica fonte da verdade sobre as pastas); o menu
+    so pergunta a ele, uma vez por estudo."""
+    if PROJETO not in _CAMINHOS:
+        saida = subprocess.run([sys.executable, str(RAIZ / "code" / "paths.py"),
+                                "--project", PROJETO],
+                               capture_output=True, text=True).stdout
+        _CAMINHOS[PROJETO] = {k: Path(v) for k, v in json.loads(saida).items()
+                              if k != "PROJECT_NAME"}
+    return _CAMINHOS[PROJETO]
 
 # Cada passo: (rotulo, titulo, script, explicacao em portugues, precisa_freesurfer)
 PASSOS = [
@@ -398,6 +437,432 @@ def garantir_pasta_para_passo1():
 
 
 # ===========================================================================
+#  O QUE PRECISA DE VOCE  -  resumo da rodada automatica, QC, series novas
+# ===========================================================================
+
+def ler_tsv(caminho, delimiter="\t"):
+    """Linhas de uma tabela (lista vazia se o arquivo nao existe)."""
+    try:
+        with open(caminho, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f, delimiter=delimiter))
+    except OSError:
+        return []
+
+
+def batch_rodando():
+    """(True, desde) se o processamento automatico esta rodando agora."""
+    trava = str(caminhos()["BATCH_LOCK"])
+    if batch_lock.is_held(trava):
+        return True, batch_lock.holder(trava).get("started", "?")
+    return False, None
+
+
+def series_desconhecidas():
+    """Linhas do relatorio de series que nenhuma regra reconheceu."""
+    return ler_tsv(caminhos()["CONVERSION_DIR"] / "reports" /
+                   "unknown_series_report.csv", delimiter=",")
+
+
+def qc_pendente():
+    c = caminhos()
+    return qc_status.pending(str(c["FREESURFER_DIR"]), str(c["SAMSEG_DIR"]),
+                             str(c["QC_FILE"]))
+
+
+ETAPA_PT = {
+    "import": "Importar BIDS recebido", "convert": "Converter DICOM (exames novos)",
+    "deidentify": "Desidentificar", "bids": "Montar BIDS",
+    "derivatives": "Derivados + sourcedata", "deface": "Remocao facial",
+    "samseg": "Lesoes (SAMSEG)", "recon": "FreeSurfer (recon)",
+    "stats": "Tabelas do FreeSurfer", "batch": "Processamento automatico",
+}
+SITUACAO_PT = {"ran": "rodou", "skipped": "nada novo para fazer",
+               "failed": "FALHOU", "blocked": "nao rodou (um passo anterior falhou)"}
+RESULTADO_PT = {
+    "OK": "terminou bem",
+    "FAILED": "terminou, mas algo FALHOU (veja abaixo)",
+    "REFUSED": "NAO comecou (veja o motivo abaixo; e tarefa do responsavel)",
+    "STOPPED": "foi interrompida; a proxima rodada continua de onde parou",
+}
+# O que cada tipo de pendencia quer dizer, e o que fazer.
+PENDENCIA_PT = {
+    "unknown-series": "Series que o pipeline nao reconheceu -> use o item S",
+    "mismatch": "DICOM e JSON com valores diferentes (validation_report.csv) "
+                "-> mostre ao responsavel antes de confiar nesse exame",
+    "convert-stop": "A conversao parou e precisa de uma decisao do responsavel",
+    "import-stop": "A importacao parou e precisa de uma decisao do responsavel",
+    "import-check": "Problemas encontrados no BIDS recebido -> avise o responsavel",
+    "no-code": "Pasta de exame sem o codigo do sujeito no nome -> o responsavel "
+               "renomeia (ex.: GER00039_...)",
+    "copy-in-progress": "Pasta ainda sendo copiada -> sera convertida na proxima rodada",
+    "gave-up": "Falhou varias vezes e o computador parou de tentar -> chame o responsavel",
+    "left-out": "Ficou de fora nesta rodada",
+    "qc-failed": "Reprovados no QC -> aguardam decisao do responsavel (refazer?)",
+}
+
+
+def mostrar_resumo():
+    """Item R: a ultima rodada automatica, em portugues."""
+    arq = caminhos()["BATCH_DIR"] / "last_summary.tsv"
+    print("\n" + "-" * 68)
+    print(f"  RESUMO DA ULTIMA RODADA AUTOMATICA  (estudo {PROJETO})")
+    print("-" * 68)
+    rodando, desde = batch_rodando()
+    if rodando:
+        print(f"  Agora: o processamento automatico esta RODANDO (desde {desde}).")
+    linhas = ler_tsv(arq)
+    if not linhas:
+        print("  Ainda nao houve nenhuma rodada automatica neste estudo.")
+        print("  (O responsavel liga com: python3 code/install_schedule.py)")
+        return
+    info = {r["item"]: r for r in linhas if r["section"] == "run"}
+    inicio = info.get("started", {}).get("detail", "?").replace("T", " ")
+    fim = info.get("finished", {}).get("detail", "?").replace("T", " ")
+    resultado = info.get("result", {}).get("status", "?")
+    print(f"  Rodada de {inicio} ate {fim}:")
+    print(f"  -> {RESULTADO_PT.get(resultado, resultado)}")
+    for r in linhas:
+        if r["section"] == "refused":
+            print(f"     motivo: {r['detail']}")
+
+    passos = [r for r in linhas if r["section"] == "step"]
+    if passos:
+        print("\n  O que o computador fez:")
+        for r in passos:
+            nome = ETAPA_PT.get(r["step"], r["step"])
+            extra = f"  ({r['detail']})" if r["status"] in ("ran", "failed") else ""
+            print(f"    - {nome}: {SITUACAO_PT.get(r['status'], r['status'])}{extra}")
+
+    falhas = [r for r in linhas if r["section"] == "failed"]
+    if falhas:
+        print("\n  O que falhou (o computador tenta de novo na proxima rodada;")
+        print("  se repetir varias noites, avise o responsavel):")
+        for r in falhas:
+            print(f"    ✖ {ETAPA_PT.get(r['step'], r['step'])} {r['item']}: {r['detail']}")
+
+    pendencias = [r for r in linhas if r["section"] == "human"]
+    print("\n  O que precisa de uma pessoa:")
+    if not pendencias:
+        print("    nada - otimo!")
+    for tipo in dict.fromkeys(r["step"] for r in pendencias):
+        print(f"    * {PENDENCIA_PT.get(tipo, tipo)}:")
+        for r in [p for p in pendencias if p["step"] == tipo][:10]:
+            item = f"{r['item']}: " if r["item"] else ""
+            print(f"        {item}{r['detail']}")
+
+    qc = [r for r in linhas if r["section"] == "qc"]
+    if qc:
+        n_recon = sum(1 for r in qc if r["step"] == "recon")
+        n_samseg = sum(1 for r in qc if r["step"] == "samseg")
+        print(f"\n  QC para fazer: {n_recon} recon do FreeSurfer, {n_samseg} "
+              "mascara(s) do SAMSEG -> use o item C.")
+    print(f"\n  (resumo completo, em ingles: {_curto(arq.with_suffix('.md'))})")
+
+
+KIND_PT = {"recon": "superficies do FreeSurfer", "samseg": "mascara de lesao do SAMSEG"}
+COMO_OLHAR = {
+    "recon": [
+        "Linha AZUL (white) = fronteira substancia branca / cinzenta;",
+        "linha VERMELHA (pial) = borda de fora do cortex.",
+        "Reprove se: pedaco de cortex fora da linha vermelha, dura-mater ou olho",
+        "dentro dela, buraco no cerebro (brainmask cortado), linha azul",
+        "atravessando a substancia branca. Passe por varios cortes (setas).",
+    ],
+    "samseg": [
+        "A mascara VERMELHA deve cair nas manchas brancas da FLAIR",
+        "(perto dos ventriculos e na substancia branca profunda).",
+        "Reprove se a mascara pega a borda dos ventriculos, o cortex ou o",
+        "cerebelo, ou se deixa de fora manchas grandes e claras.",
+    ],
+}
+
+
+def nota_valida(texto):
+    """Sem numeros que parecam data/identificador (6+ digitos, dd/mm/aa)."""
+    return not re.search(r"\d{6,}|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}", texto)
+
+
+def conferir_qualidade():
+    """Item C: abre cada saida pronta no freeview e grava aprovado/reprovado."""
+    c = caminhos()
+    pendentes = qc_pendente()
+    print("\n" + "-" * 68)
+    print(f"  CONTROLE DE QUALIDADE (QC)  (estudo {PROJETO})")
+    print("-" * 68)
+    if not pendentes:
+        print("  Nada pendente: tudo o que ficou pronto ja foi conferido.")
+        return
+    print(f"  {len(pendentes)} item(ns) esperando uma pessoa olhar. Para cada um:")
+    print("  o menu abre o freeview; voce olha, FECHA o freeview e diz se")
+    print("  aprova (a) ou reprova (r). O registro vai para:")
+    print(f"    {_curto(c['QC_FILE'])}")
+    tem_freeview = shutil.which("freeview") is not None
+    if not tem_freeview:
+        print("\n  [!] O freeview nao foi encontrado nesta janela (FreeSurfer nao")
+        print("      carregado?). Vou mostrar o comando para voce copiar numa")
+        print("      janela com o FreeSurfer carregado.")
+    try:
+        quem = input("\n  Suas iniciais (para o registro; ENTER pula): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    vistos = set()
+    for n, item in enumerate(pendentes, start=1):
+        print("\n" + "." * 68)
+        print(f"  [{n}/{len(pendentes)}] {item['subject']} / {item['session']} - "
+              f"{KIND_PT[item['kind']]}")
+        if item["kind"] == "recon":
+            buracos = qc_status.surface_holes(item["folder"])
+            if buracos is not None:
+                print(f"  Buracos na superficie antes da correcao: {buracos} (compare com")
+                print("  os outros exames; bem mais que os colegas = olhe com mais cuidado)")
+        else:
+            vol = qc_status.lesion_volume(item["folder"])
+            if vol is not None:
+                print(f"  Volume de lesao calculado: {vol:.0f} mm3")
+        if item["kind"] not in vistos:
+            vistos.add(item["kind"])
+            for linha in COMO_OLHAR[item["kind"]]:
+                print(f"    {linha}")
+        pasta, cmd = qc_status.freeview_command(item)
+        print("  Comando (para abrir a mao):")
+        print(f"    cd {shlex.quote(pasta)}")
+        print("    " + shlex.join(cmd))
+        try:
+            resp = input("  ENTER = abrir no freeview, p = pular este, s = sair: ").strip().lower()
+            if resp in ("s", "sair"):
+                break
+            if resp in ("p", "pular"):
+                continue
+            if tem_freeview:
+                print("  (abrindo... feche o freeview para continuar)")
+                subprocess.run(cmd, cwd=pasta)
+            while True:
+                resp = input("  Resultado: a = aprovado, r = reprovado, "
+                             "d = decidir depois: ").strip().lower()
+                if resp in ("a", "r", "d"):
+                    break
+                print("  Responda a, r ou d.")
+            if resp == "d":
+                continue
+            while True:
+                nota = input("  Observacao (opcional; NUNCA nome de paciente ou "
+                             "datas): ").strip()
+                if nota_valida(nota):
+                    break
+                print("  A observacao parece ter uma data ou numero de identificacao;")
+                print("  escreva sem isso (ex.: 'pial corta o lobo temporal esquerdo').")
+        except (EOFError, KeyboardInterrupt):
+            print("\n  (parei; o que ja foi registrado esta salvo)")
+            return
+        status = "pass" if resp == "a" else "fail"
+        qc_status.record(str(c["QC_FILE"]), item["subject"], item["session"],
+                         item["kind"], status, nota, quem)
+        print(f"  ✔ registrado: {'APROVADO' if status == 'pass' else 'REPROVADO'}")
+    print("\n  Fim do QC por agora. Reprovados aparecem no resumo (item R) para o")
+    print("  responsavel decidir o que refazer.")
+
+
+# Sufixos BIDS aceitos por tipo de dado ("" = sem sufixo).
+SUFIXOS = {
+    "anat": ["T1w", "T2w", "FLAIR", "PDw", "T2starw"],
+    "func": ["bold"],
+    "dwi": ["dwi"],
+    "fmap": ["phasediff", "magnitude", "magnitude1", "magnitude2", "phase1",
+             "phase2", "fieldmap", "epi"],
+    "perf": ["asl", "m0scan", ""],
+    "swi": ["swi"],
+    "misc": [""],
+}
+TIPO_PT = {
+    "anat": "estrutural (T1, T2, FLAIR...)",
+    "func": "funcional (BOLD / ressonancia funcional)",
+    "dwi": "difusao (DWI/DTI)",
+    "fmap": "mapa de campo (field map)",
+    "perf": "perfusao (ASL)",
+    "swi": "suscetibilidade (SWI/SWAN)",
+    "misc": "nao e dado de pesquisa (localizador, captura de tela, relatorio)",
+}
+ENTIDADES = {"task", "acq", "ce", "rec", "dir", "run", "echo", "desc"}
+CABECALHO_MAPA = "match_type,pattern,datatype,suffix,entities,derived,notes"
+
+
+def regras_do_mapa(caminho):
+    return sc.load_series_map(str(caminho))
+
+
+def validar_regra(regra, serie, mapa_estudo):
+    """
+    Confere uma regra nova ANTES de gravar. `regra` tem as colunas do
+    series_map.csv; `serie` e uma linha do relatorio de series desconhecidas.
+    Devolve (erros, avisos): listas de textos em portugues.
+    """
+    erros, avisos = [], []
+    tipo, sufixo = regra["datatype"], regra["suffix"]
+    if tipo not in SUFIXOS:
+        erros.append(f"tipo '{tipo}' invalido (use: {', '.join(SUFIXOS)})")
+    elif sufixo not in SUFIXOS[tipo]:
+        erros.append(f"sufixo '{sufixo}' nao combina com {tipo} (use: "
+                     + ", ".join(s or "(vazio)" for s in SUFIXOS[tipo]) + ")")
+    ent = regra["entities"]
+    if ent:
+        pares = ent.split(";")
+        if not all(re.fullmatch(r"[a-z]+=[A-Za-z0-9]+", p) for p in pares):
+            erros.append("entidades no formato chave=valor;chave=valor, so letras e "
+                         "numeros (ex.: task=rest)")
+        elif any(p.split("=")[0] not in ENTIDADES for p in pares):
+            erros.append(f"entidade desconhecida (use: {', '.join(sorted(ENTIDADES))})")
+    if regra["derived"] not in ("", "yes"):
+        erros.append("derivado deve ser 'yes' ou vazio")
+    padrao, comparacao = regra["pattern"], regra["match_type"]
+    if comparacao not in ("exact", "substring", "regex"):
+        erros.append("comparacao deve ser exact, substring ou regex")
+    if not padrao.strip():
+        erros.append("o padrao esta vazio")
+    if padrao.lstrip().startswith("#") or "\n" in padrao or len(padrao) > 120:
+        erros.append("o padrao nao pode comecar com # nem ter quebra de linha "
+                     "(e no maximo 120 letras)")
+    if re.search(r"\d{6,}", padrao):
+        erros.append("o padrao tem um numero longo (data? identificador?); este "
+                     "arquivo e compartilhado - use so o nome da sequencia")
+    if comparacao == "regex":
+        try:
+            re.compile(padrao)
+        except re.error as err:
+            erros.append(f"expressao regular invalida: {err}")
+    if erros:
+        return erros, avisos
+    nova = {"match_type": comparacao, "pattern": padrao, "datatype": tipo,
+            "suffix": sufixo, "entities": sc._parse_entities(ent),
+            "derived": regra["derived"] == "yes", "notes": regra["notes"]}
+    descricao = serie["series_description"]
+    if sc.classify(descricao, series_map=[nova]).source != "series_map":
+        erros.append(f"o padrao nao reconhece o nome da serie ({descricao!r})")
+        return erros, avisos
+    # A primeira regra que reconhece a serie vence: confere se e mesmo a nova.
+    todas = regras_do_mapa(mapa_estudo) + [nova] + sc.load_series_map()
+    resultado = sc.classify(descricao, image_type=serie.get("image_type", ""),
+                            modality=serie.get("modality", ""),
+                            sequence=serie.get("sequence", ""), series_map=todas)
+    if resultado.datatype != tipo:
+        erros.append(f"outra regra ja existente ganha desta (a serie continuaria "
+                     f"como {resultado.datatype}); chame o responsavel")
+    if tipo == "func" and "task=" not in ent:
+        avisos.append("sem task=... a serie funcional fica em sourcedata/func ate "
+                      "alguem definir a tarefa (ex.: task=rest para repouso)")
+    if comparacao != "exact":
+        avisos.append("um padrao 'contem'/'regex' pode pegar OUTRAS series tambem; "
+                      "confira com o responsavel se nao tiver certeza")
+    return erros, avisos
+
+
+def gravar_regra(mapa_estudo, regra, quem=""):
+    """Acrescenta a regra (e uma linha de comentario com data/iniciais) ao
+    series_map.csv do estudo; confere relendo o arquivo. Devolve True/False."""
+    caminho = Path(mapa_estudo)
+    antes = len(regras_do_mapa(caminho))
+    if not caminho.is_file():
+        caminho.write_text(CABECALHO_MAPA + "\n# Series rules of this study (checked "
+                           "before code/series_map.csv). First match wins.\n",
+                           encoding="utf-8")
+    texto = caminho.read_text(encoding="utf-8")
+    with open(caminho, "a", newline="", encoding="utf-8") as f:
+        if texto and not texto.endswith("\n"):
+            f.write("\n")
+        f.write(f"# added from the student menu on {date.today().isoformat()}"
+                f"{' by ' + quem if quem else ''}\n")
+        csv.writer(f, lineterminator="\n").writerow(
+            [regra[k] for k in CABECALHO_MAPA.split(",")])
+    return len(regras_do_mapa(caminho)) == antes + 1
+
+
+def perguntar(texto, padrao=""):
+    resp = input(f"  {texto}" + (f" [ENTER = {padrao}]" if padrao else "") + ": ").strip()
+    return resp or padrao
+
+
+def revisar_series():
+    """Item S: mostra as series desconhecidas e ensina uma regra nova."""
+    print("\n" + "-" * 68)
+    print(f"  SERIES DESCONHECIDAS  (estudo {PROJETO})")
+    print("-" * 68)
+    linhas = series_desconhecidas()
+    if not linhas:
+        print("  Nenhuma: todas as series foram reconhecidas.")
+        return
+    grupos = {}
+    for r in linhas:
+        grupos.setdefault(r["series_description"], []).append(r)
+    nomes = sorted(grupos)
+    print("  Estas series nao bateram com nenhuma regra e ficaram de lado")
+    print("  (em bids/sourcedata/unknown/). Escolha uma para ensinar o pipeline:\n")
+    for i, nome in enumerate(nomes, start=1):
+        r = grupos[nome][0]
+        print(f"   {i}) {nome!r}  -  {len(grupos[nome])} exame(s); "
+              f"ImageType {r.get('image_type') or '?'}; dica: {r.get('suggestion')}")
+    try:
+        resp = input("\n  Numero (ENTER volta ao menu): ").strip()
+        if not resp.isdigit() or not 1 <= int(resp) <= len(nomes):
+            return
+        serie = grupos[nomes[int(resp) - 1]][0]
+        descricao = serie["series_description"]
+        print(f"\n  Serie: {descricao!r}")
+        print("  Se nao tiver CERTEZA do que e esta serie, pare aqui e pergunte ao")
+        print("  responsavel (ou veja o PDF do protocolo do scanner).\n")
+        tipos = list(SUFIXOS)
+        for i, t in enumerate(tipos, start=1):
+            print(f"   {i}) {t:<5} {TIPO_PT[t]}")
+        t = perguntar("Tipo (numero)")
+        if not t.isdigit() or not 1 <= int(t) <= len(tipos):
+            print("  Opcao invalida; nada foi gravado.")
+            return
+        tipo = tipos[int(t) - 1]
+        opcoes = SUFIXOS[tipo]
+        sufixo = opcoes[0]
+        if len(opcoes) > 1:
+            print("  Sufixo BIDS: " + ", ".join(f"{i}) {s or '(vazio)'}"
+                                               for i, s in enumerate(opcoes, start=1)))
+            s = perguntar("Sufixo (numero)", "1")
+            sufixo = opcoes[int(s) - 1] if s.isdigit() and 1 <= int(s) <= len(opcoes) else "?"
+        ent = perguntar("Entidades BIDS (opcional, ex.: task=rest)",
+                        "task=rest" if tipo == "func" else "")
+        derivado = perguntar("E um mapa calculado pelo scanner (derivado)? s/n", "n")
+        print("  Como reconhecer o nome:  1) exatamente este nome (recomendado)  "
+              "2) contem um trecho  3) expressao regular (avancado)")
+        modo = perguntar("Forma (numero)", "1")
+        comparacao = {"1": "exact", "2": "substring", "3": "regex"}.get(modo, "exact")
+        padrao = descricao.lower() if comparacao == "exact" else \
+            perguntar("Trecho ou expressao (em minusculas)")
+        notas = perguntar("Nota (o que e esta serie)", "added from the student menu")
+        regra = {"match_type": comparacao, "pattern": padrao, "datatype": tipo,
+                 "suffix": sufixo, "entities": ent,
+                 "derived": "yes" if derivado.lower() in ("s", "sim", "y") else "",
+                 "notes": notas}
+        mapa = caminhos()["PROJECT_SERIES_MAP"]
+        erros, avisos = validar_regra(regra, serie, mapa)
+        if erros:
+            print("\n  [x] A regra NAO foi gravada:")
+            for e in erros:
+                print(f"      - {e}")
+            return
+        for a in avisos:
+            print(f"  [!] {a}")
+        print("\n  Linha que vai para " + _curto(mapa) + ":")
+        print("    " + ",".join(regra[k] for k in CABECALHO_MAPA.split(",")))
+        if perguntar("Gravar? s/n", "n").lower() not in ("s", "sim", "y"):
+            print("  Ok, nada foi gravado.")
+            return
+        quem = perguntar("Suas iniciais (vao num comentario do arquivo)")
+    except (EOFError, KeyboardInterrupt):
+        print("\n  (cancelado; nada foi gravado)")
+        return
+    if gravar_regra(mapa, regra, quem):
+        print(f"  ✔ Regra gravada. Na proxima rodada automatica os exames com esta")
+        print(f"    serie sao convertidos de novo e ela entra como {tipo}.")
+    else:
+        print("  [x] Algo deu errado ao reler o arquivo; chame o responsavel.")
+
+
+# ===========================================================================
 #  MENU
 # ===========================================================================
 
@@ -456,9 +921,32 @@ def cabecalho():
     else:
         print("  Mapa:  DICOM -> NIfTI -> desidentificar -> BIDS -> derivados ->")
     print(f"         {face}FreeSurfer -> VOLUMES{lesoes}")
-    print("  Dica:  faca os passos em ordem (0,1,2,...). Em caso de duvida,")
-    print("         leia o GUIA_DO_ALUNO.pdf ou chame o responsavel.")
+    print("  Os passos longos rodam sozinhos toda noite no Mac Mini. O SEU")
+    print("  trabalho e o que precisa de uma pessoa: itens R, C e S abaixo.")
+    print("  Em caso de duvida, leia o GUIA_DO_ALUNO.pdf ou chame o responsavel.")
     print("=" * 68)
+    situacao()
+
+
+def situacao():
+    """Uma linha sobre o processamento automatico e as pendencias."""
+    try:
+        rodando, desde = batch_rodando()
+        linhas = ler_tsv(caminhos()["BATCH_DIR"] / "last_summary.tsv")
+        n_qc, n_series = len(qc_pendente()), len(series_desconhecidas())
+    except Exception:
+        return
+    if rodando:
+        print(f"  Processamento automatico: RODANDO agora (desde {desde}).")
+    elif linhas:
+        info = {r["item"]: r for r in linhas if r["section"] == "run"}
+        quando = info.get("finished", {}).get("detail", "?").replace("T", " ")[:16]
+        resultado = info.get("result", {}).get("status", "?")
+        print(f"  Ultima rodada automatica: {quando} - "
+              f"{RESULTADO_PT.get(resultado, resultado)}")
+    else:
+        print("  Processamento automatico: ainda nao rodou neste estudo.")
+    print(f"  Pendente para voce: {n_qc} QC, {n_series} serie(s) desconhecida(s).")
 
 
 def menu():
@@ -470,6 +958,11 @@ def menu():
         print(f"\n  Pasta de dados (passo 1): {_curto(local_dos_dados())}")
         print("  (errada ou em outro lugar? use o item D)")
     print("\n  Escolha um numero/letra e aperte ENTER:\n")
+    print("  O QUE PRECISA DE VOCE:")
+    print("   R) Resumo da ultima rodada automatica (o que rodou, o que falhou)")
+    print("   C) Conferir a qualidade (QC) dos exames prontos, no freeview")
+    print("   S) Series desconhecidas: revisar e ensinar uma regra")
+    print("\n  PASSOS (rodar a mao so quando o responsavel pedir):")
     for num, titulo, _script, _exp, fs in passos_do_projeto():
         marca = "  (precisa do FreeSurfer)" if fs else ""
         print(f"   {num}) {titulo}{marca}")
@@ -490,6 +983,12 @@ def rodar_passo(num):
         return
     _num, titulo, script, exp, precisa_fs = passo
     caminho = RAIZ / "code" / script
+    rodando, desde = batch_rodando()
+    if rodando and script != "check_environment.py":
+        print(f"\n  O processamento automatico esta rodando agora (desde {desde}).")
+        print("  Nao rode passos a mao ao mesmo tempo (eles mexeriam nas mesmas")
+        print("  pastas). Use o item R para acompanhar, ou espere ele terminar.")
+        return
     print("\n" + "-" * 68)
     print(f"  PASSO {num}: {titulo}  (estudo {PROJETO})")
     print("-" * 68)
@@ -561,6 +1060,12 @@ def main():
             continue
         if escolha in ("d", "dados") and ENTRADA != "bids":
             conferir_dados()
+        elif escolha in ("r", "resumo"):
+            mostrar_resumo()
+        elif escolha in ("c", "qc"):
+            conferir_qualidade()
+        elif escolha in ("s", "series"):
+            revisar_series()
         else:
             rodar_passo(escolha)
         input("\n  (aperte ENTER para voltar ao menu) ")

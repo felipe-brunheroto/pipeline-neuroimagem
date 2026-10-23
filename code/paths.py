@@ -40,7 +40,8 @@ THE LAYOUT
                                         names + provenance.csv + logs + reports)
               asl/ fmap/ func/ unknown/  <- scaffolds pending researcher input
             derivatives/
-              scanner-derived/ defaced/ freesurfer/
+              scanner-derived/ defaced/ freesurfer/ samseg/ qc/
+          logs/batch/                <- run_batch.py logs + summaries (kept local)
           archive/                   <- timestamped backups (kept local)
           deliverable/               <- generated PDFs / bundles (no raw data)
 
@@ -137,3 +138,23 @@ DELIVERABLE_DIR = PROJECT_ROOT / "deliverable"
 
 # Timestamped backups of previous runs (patient-derived; stays on this machine).
 ARCHIVE_DIR = PROJECT_ROOT / "archive"
+
+# Unattended runs (run_batch.py): one folder per run with the step logs and the
+# end-of-run summary, plus the retry state. Git-ignored; codes only, no names.
+BATCH_DIR = PROJECT_ROOT / "logs" / "batch"
+
+# One batch at a time on this machine, whatever the project: they share the
+# cores, the memory and the disk.
+BATCH_LOCK = PROJECTS_DIR / ".batch.lock"
+
+# Visual QC decisions (pass/fail + note per session and kind), recorded from the
+# student menu. Inside bids/derivatives so it stays with the outputs it judges.
+QC_FILE = BIDS_ROOT / "derivatives" / "qc" / "qc_status.tsv"
+
+
+if __name__ == "__main__":
+    # `python code/paths.py --project NAME` prints this project's layout as JSON,
+    # so tools outside code/ (the student menu) never re-derive a path.
+    print(json.dumps({"PROJECT_NAME": PROJECT_NAME,
+                      **{k: str(v) for k, v in sorted(globals().items())
+                         if isinstance(v, Path)}}, indent=1))

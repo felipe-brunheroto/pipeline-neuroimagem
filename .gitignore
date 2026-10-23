@@ -31,6 +31,11 @@ freesurfer_subjects/
 # Timestamped backups of previous runs (patient-derived; kept on this machine).
 archive/
 
+# Unattended runs (run_batch.py): per-run logs, summaries, retry state and the
+# machine-wide lock. Codes only, but they describe this site's data: kept local.
+logs/
+.batch.lock
+
 # Generated deliverables (PDF + handoff/export bundles). Rebuilt by the
 # make_report.py scripts / export_openneuro.py / git archive.
 deliverable/
@@ -52,3 +57,4 @@ __pycache__/
 .venv/
 venv/
 .ipynb_checkpoints/
+.pytest_cache/

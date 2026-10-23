@@ -286,6 +286,10 @@ def main():
     parser.add_argument("--allow-mixed-versions", action="store_true",
                         help="Run even if SUBJECTS_DIR already holds recons from "
                              "another FreeSurfer version (not recommended).")
+    parser.add_argument("--exclude", default="",
+                        help="Comma list of FreeSurfer ids to leave out of this run "
+                             "(e.g. sub-X_ses-1,sub-X); used by run_batch.py for "
+                             "runs that keep failing.")
     args = parser.parse_args()
     extra_flags = recon_cfg.get("flags", [])
 
@@ -300,6 +304,10 @@ def main():
 
     stages = [s.strip() for s in args.stages.split(",") if s.strip()]
     plan = build_plan(tree, args.subjects_dir, args.pial, args.threads, extra_flags)
+    excluded = {s.strip() for s in args.exclude.split(",") if s.strip()}
+    if excluded:
+        for stage in plan:
+            plan[stage] = [item for item in plan[stage] if item[1] not in excluded]
 
     print("=" * 70)
     print(" FreeSurfer longitudinal recon plan")
@@ -309,6 +317,8 @@ def main():
           f"parallel jobs: {args.jobs}")
     print(f" extra flags  : {' '.join(extra_flags) or '(none)'}   "
           f"(project {paths.PROJECT_NAME})")
+    if excluded:
+        print(f" left out     : {', '.join(sorted(excluded))}")
     print("=" * 70)
     for sub in sorted(tree):
         sess = ", ".join(sorted(tree[sub]))
