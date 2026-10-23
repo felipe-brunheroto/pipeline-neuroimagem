@@ -351,7 +351,9 @@ def pending_exams(input_dir, output_dir, settle_seconds=0):
       done        session already in provenance.csv
       new         not converted yet (or not numbered yet: COGAGING)
       reclassify  converted, with an unknown series a new rule now classifies
-      settling    changed in the last `settle_seconds` (still being copied?)
+      settling    not converted yet and changed in the last `settle_seconds`
+                  (still being copied?). A converted exam is never 'settling':
+                  browsing it in Finder (.DS_Store) must not hold it back.
       no-code     COGAGING folder without a study code in its name
     Nothing is written (the session map is only read, never updated).
     """
@@ -375,14 +377,14 @@ def pending_exams(input_dir, output_dir, settle_seconds=0):
             item["subject"], item["session"] = parse_subject_session(
                 name, load_subjects_map())
         label = (item["subject"], item["session"])
-        if settle_seconds and now - newest_change(full) < settle_seconds:
-            item["state"] = "settling"
-        elif item["subject"] is None:
+        if item["subject"] is None:
             item["state"] = "no-code"
         elif label in again:
             item["state"] = "reclassify"
         elif item["session"] and label in done:
             item["state"] = "done"
+        elif settle_seconds and now - newest_change(full) < settle_seconds:
+            item["state"] = "settling"
         else:
             item["state"] = "new"
         out.append(item)
@@ -658,14 +660,13 @@ def main():
     # --only-new: a folder that is still changing (a CD being copied) waits for
     # the next run, so a half-copied exam is never converted and recorded.
     if only_new and settle_seconds:
-        now = datetime.now().timestamp()
-        waiting = [k for k, (_name, full) in enumerate(subjects, start=1)
-                   if now - newest_change(full) < settle_seconds]
-        for k in waiting:
-            log(f"[wait] exam folder #{k} changed in the last "
+        waiting = {e["name"] for e in pending_exams(input_dir, output_dir, settle_seconds)
+                   if e["state"] == "settling"}
+        for name in sorted(waiting, key=index_of.get):
+            log(f"[wait] exam folder #{index_of[name]} changed in the last "
                 f"{settle_seconds / 60:g} min (still being copied?); next run.",
                 log_lines)
-        subjects = [s for k, s in enumerate(subjects, start=1) if k not in waiting]
+        subjects = [(name, full) for name, full in subjects if name not in waiting]
 
     if not subjects:
         log("No subject sub-folders found. Nothing to do.", log_lines)

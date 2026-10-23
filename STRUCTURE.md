@@ -24,16 +24,20 @@ Pipeline Neuroimagem/
 │   │   ├── project.json       # study settings (tracked in git)
 │   │   ├── Patient Files/     # raw DICOM input — one folder per exam. READ-ONLY, never shared.
 │   │   ├── bids/              # THE dataset for this study (see below)
+│   │   ├── logs/batch/        # run_batch.py: per-run logs + summary.md/.tsv, state.json (kept local)
 │   │   ├── archive/           # timestamped backups of previous runs (kept local)
 │   │   └── deliverable/       # generated PDFs + handoff/export bundles (no patient data)
-│   └── COGAGING/              # input: DICOM from clinical CDs (+ legacy dcm2bids BIDS)
-│       ├── project.json
-│       ├── series_map.csv     # COGAGING scanner series rules (tracked in git)
-│       ├── Patient Files/     # one folder per CD, name contains the code (GER00039_...). READ-ONLY.
-│       ├── sourcedata/
-│       │   ├── received/      # legacy BIDS from dcm2bids, untouched (READ-ONLY; site identifiers inside)
-│       │   └── session_map.tsv    # exam date <-> ses-N (dates are identifiers: stays here, never in bids/)
-│       └── bids/              # the de-identified dataset
+│   ├── COGAGING/              # input: DICOM from clinical CDs (+ legacy dcm2bids BIDS)
+│   │   ├── project.json
+│   │   ├── series_map.csv     # COGAGING scanner series rules (tracked in git)
+│   │   ├── Patient Files/     # one folder per CD, name contains the code (GER00039_...). READ-ONLY.
+│   │   ├── sourcedata/
+│   │   │   ├── received/      # legacy BIDS from dcm2bids, untouched (READ-ONLY; site identifiers inside)
+│   │   │   └── session_map.tsv    # exam date <-> ses-N (dates are identifiers: stays here, never in bids/)
+│   │   ├── logs/batch/        # run_batch.py logs and summaries
+│   │   └── bids/              # the de-identified dataset
+│   └── .batch.lock            # machine-wide lock: one batch at a time (OS file lock)
+├── tests/                     # self-tests on synthetic data (no data committed)
 ├── docs/                      # project documents (summary .docx, notes)
 ├── README.md  QUICKSTART.md  CLAUDE.md  STRUCTURE.md  requirements.txt
 ```
@@ -53,14 +57,15 @@ bids/
 └── derivatives/
     ├── scanner-derived/    # ADC, TRACEW, SWI family, perfusion maps
     ├── defaced/            # face-masked anatomicals (desc-defaced)
-    ├── freesurfer/         # recon-all output (+ stats/, logs/)
-    └── samseg/             # SAMSEG lesions per session + samseg_lesions.tsv
+    ├── freesurfer/         # recon-all output (+ stats/, logs/, .failed/ = last unfinished attempt)
+    ├── samseg/             # SAMSEG lesions per session + samseg_lesions.tsv
+    └── qc/                 # qc_status.tsv: visual QC pass/fail per session (student menu, item C)
 ```
 
 > **code travels, data does not.** `code/`, `Pipeline_Alunos/`, the
 > `project.json` files and the docs are safe to share/version-control.
-> `Patient Files/`, `sourcedata/`, `bids/`, and `archive/` are patient-derived
-> and are git-ignored — they stay on the secure machine.
+> `Patient Files/`, `sourcedata/`, `bids/`, `archive/` and `logs/` are
+> patient-derived and are git-ignored — they stay on the secure machine.
 
 ## Which step writes where
 
@@ -80,6 +85,10 @@ needed. Paths in this table are relative to `projects/<NAME>/`.
 | 7 | `extract_fs_stats.py` | `bids/derivatives/freesurfer/` | `bids/derivatives/freesurfer/stats/` |
 | 8 | `run_samseg.py` (COGAGING) | `bids/sub-*` (T1w + FLAIR) | `bids/derivatives/samseg/` + `samseg_lesions.tsv` |
 | — | `export_openneuro.py` | `bids/` | validation report + (optional) `deliverable/bids_openneuro/` |
+| B | `run_batch.py` (all of the above that apply, only what is pending) | everything above | the same outputs as the steps + `logs/batch/<run>/` (step logs, `summary.md`, `summary.tsv`), `logs/batch/state.json` |
+| — | `install_schedule.py` | — | `~/Library/LaunchAgents/org.pipeline-neuroimagem.batch.<name>.plist` (nightly `run_batch.py`) |
+| C | student menu, item C (`qc_status.py`) | `bids/derivatives/freesurfer/`, `…/samseg/` | `bids/derivatives/qc/qc_status.tsv` |
+| S | student menu, item S | `…/conversion/reports/unknown_series_report.csv` | a validated row appended to `series_map.csv` (re-converted by the next batch) |
 
 Re-running steps 3 and 4 is **safe**: each rebuilds only the subtree it owns and
 leaves the others (including the FreeSurfer recon) untouched.
@@ -95,6 +104,9 @@ leaves the others (including the FreeSurfer recon) untouched.
 | Defaced anatomicals | `bids/derivatives/defaced/sub-CBR003/` |
 | FreeSurfer surfaces/volumes | `bids/derivatives/freesurfer/sub-CBR003_ses-*/` |
 | Region tables (volume/thickness) | `bids/derivatives/freesurfer/stats/` |
+| SAMSEG lesions | `bids/derivatives/samseg/sub-CBR003_ses-*/` (COGAGING) |
+| Visual QC decisions | `bids/derivatives/qc/qc_status.tsv` (rows where `subject=sub-CBR003`) |
+| What the nightly batch did with it | `logs/batch/<run>/summary.md` |
 
 ## Exporting to an open-science platform
 

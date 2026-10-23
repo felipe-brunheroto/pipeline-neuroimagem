@@ -122,6 +122,73 @@ def steps_table(st):
     return t
 
 
+def person_table(st):
+    """Itens R, C e S do menu: o que precisa de uma pessoa."""
+    rows = [
+        ["Item", "Para que serve", "O que você faz"],
+        ["R", "Resumo da última rodada automática: o que rodou, o que não tinha "
+              "nada novo, o que falhou (e por quê) e o que precisa de uma pessoa.",
+         "Leia todo dia. Falhas são tentadas de novo na noite seguinte; se a mesma "
+         "falha se repetir, ou se aparecer RECUSADO, avise o responsável."],
+        ["C", "Controle de qualidade (QC): cada recon do FreeSurfer e cada máscara "
+              "do SAMSEG pronta e ainda não conferida.",
+         "O menu abre o freeview; você olha, fecha e responde a (aprovado), r "
+         "(reprovado) ou d (decidir depois), com uma observação curta. Fica "
+         "gravado em bids/derivatives/qc/qc_status.tsv."],
+        ["S", "Séries desconhecidas: sequências que nenhuma regra reconheceu e "
+              "ficaram de lado (bids/sourcedata/unknown/).",
+         "Escolha a série, diga o tipo (ex.: estrutural T1w, ou “não é dado de "
+         "pesquisa”) e confirme. O menu confere a regra antes de gravar em "
+         "projects/<ESTUDO>/series_map.csv; a próxima rodada converte de novo."],
+    ]
+    data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
+             for c in r] for i, r in enumerate(rows)]
+    t = Table(data, colWidths=[12*mm, 74*mm, 84*mm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c5d2e0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return t
+
+
+def summary_table(st):
+    """O que o resumo (item R) pode pedir de uma pessoa, e o que fazer."""
+    rows = [
+        ["O resumo diz…", "O que fazer"],
+        ["Séries que o pipeline não reconheceu", "Item S (ou pergunte ao responsável "
+         "se não souber o que é a série)."],
+        ["DICOM e JSON com valores diferentes (MISMATCH)", "Mostre ao responsável "
+         "antes de usar esse exame. (TRACEW com TR diferente é conhecido e benigno.)"],
+        ["A conversão parou… exame MAIS ANTIGO que outro", "Chame o responsável: as "
+         "sessões são numeradas pela data e não mudam; ele decide a numeração."],
+        ["Pasta ainda sendo copiada", "Nada: o CD é convertido na próxima rodada."],
+        ["Pasta de exame sem o código do sujeito", "O responsável renomeia a pasta "
+         "(ex.: GER00039_...)."],
+        ["Falhou várias vezes; o computador parou de tentar", "Chame o responsável "
+         "(ele corrige e manda tentar de novo)."],
+        ["Reprovados no QC", "O responsável decide se refaz (ex.: edição manual no "
+         "FreeSurfer) ou exclui o exame da análise."],
+        ["RECUSADO (não começou)", "Tarefa do responsável: FreeSurfer não "
+         "carregado, sem licença, disco cheio ou FreeSurfer de Intel no SAMSEG."],
+    ]
+    data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
+             for c in r] for i, r in enumerate(rows)]
+    t = Table(data, colWidths=[76*mm, 94*mm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c5d2e0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return t
+
+
 def pointing_table(st):
     """O que o item D do menu responde ao conferir a pasta, e o que fazer."""
     rows = [
@@ -196,6 +263,19 @@ def faq_table(st):
         ["A conversão parou dizendo que um exame novo é MAIS ANTIGO que outro.",
          "É de propósito: as sessões são numeradas pela data e não mudam depois. "
          "Chame o responsável para decidir a numeração."],
+        ["O menu diz que o processamento automático está RODANDO e não deixa "
+         "rodar um passo.",
+         "É de propósito: os dois mexeriam nas mesmas pastas. Use os itens R, C e "
+         "S (eles podem ser usados a qualquer hora) e espere a rodada terminar."],
+        ["O freeview não abre pelo item C.",
+         "O FreeSurfer não está carregado nesta janela. O menu mostra o comando: "
+         "copie-o numa janela com o FreeSurfer carregado, ou chame o responsável."],
+        ["Reprovei (ou aprovei) por engano no QC.",
+         "Sem problema: deixe uma observação com o responsável, ou abra o QC de "
+         "novo pelo responsável; gravar a mesma sessão outra vez substitui a decisão."],
+        ["Gravei uma regra errada no item S.",
+         "Avise o responsável: a regra é uma linha de projects/<ESTUDO>/series_map.csv "
+         "(com um comentário com a data e suas iniciais), fácil de corrigir."],
     ]
     data = [[Paragraph(esc(c), st["cellh"] if i == 0 else st["cell"])
              for c in r] for i, r in enumerate(rows)]
@@ -218,8 +298,9 @@ def build(path):
                             title="Guia do Aluno - pipeline CBR")
     F = []
     F.append(Paragraph("Guia do Aluno — do DICOM aos volumes do cérebro", st["title"]))
-    F.append(Paragraph("Pipeline de neuroimagem (CBR e COGAGING) · FreeSurfer 8 · passo a passo para quem está "
-                       "abrindo o Terminal pela primeira vez", st["sub"]))
+    F.append(Paragraph("Pipeline de neuroimagem (CBR e COGAGING) · FreeSurfer 8 · o computador "
+                       "processa à noite, você confere a qualidade · passo a passo para quem "
+                       "está abrindo o Terminal pela primeira vez", st["sub"]))
     F.append(Spacer(1, 3))
     F.append(Paragraph(f"Atualizado em {date.today().isoformat()} &nbsp;·&nbsp; "
                        "em português &nbsp;·&nbsp; <b>não contém dados de "
@@ -246,8 +327,11 @@ def build(path):
     F.append(Paragraph(
         "Na pasta <b>Pipeline_Alunos</b> há um arquivo chamado "
         "<b>iniciar.command</b>. Dê <b>dois cliques</b> nele: abre uma janela com "
-        "um menu em português. Escolha um número (0, 1, 2, …) e aperte ENTER. "
-        "O menu explica cada passo e pergunta antes de fazer qualquer coisa.",
+        "um menu em português. Escolha uma letra ou número e aperte ENTER. No "
+        "topo, o menu mostra como foi a última rodada automática e quantos "
+        "itens esperam por você; os itens <b>R</b>, <b>C</b> e <b>S</b> são o "
+        "seu trabalho do dia a dia (seção 4). O menu explica cada item e "
+        "pergunta antes de fazer qualquer coisa.",
         st["body"]))
     F.append(Paragraph(
         "Na primeira vez, o macOS pode dizer que “não pode verificar o "
@@ -309,14 +393,52 @@ def build(path):
         "repita os passos com a mesma entrada obtém a mesma saída — e fica "
         "registrado de onde os dados vieram.", st["rule"]))
 
-    F.append(Paragraph("4. Os passos, um a um", st["h2"]))
-    F.append(Paragraph("Faça <b>em ordem</b> (0 → 1 → 2 → …). No passo 1 o menu "
+    F.append(Paragraph("4. O que precisa de você (itens R, C e S)", st["h2"]))
+    F.append(Paragraph(
+        "As etapas longas — conversão, BIDS, FreeSurfer (1h30 por exame) e "
+        "SAMSEG — rodam <b>sozinhas, toda noite</b>, no Mac Mini (o "
+        "“processamento automático”). Ele só processa o que é novo ou ficou "
+        "pela metade: um CD novo colocado em <b>Patient Files</b> entra na "
+        "próxima noite. O que o computador <b>não</b> sabe fazer é olhar as "
+        "imagens e decidir: esse é o seu trabalho, pelos itens do topo do menu.",
+        st["body"]))
+    F.append(person_table(st))
+    F.append(Paragraph("<b>Como fazer o QC (item C)</b>", st["body"]))
+    F.append(bullets([
+        "FreeSurfer: a linha AZUL (white) deve seguir a fronteira entre substância "
+        "branca e cinzenta; a VERMELHA (pial), a borda de fora do córtex. Reprove "
+        "se houver córtex fora da linha vermelha, dura-máter ou olho dentro dela, "
+        "cérebro cortado (brainmask) ou linha azul atravessando a substância "
+        "branca. Passe por vários cortes com as setas.",
+        "O menu mostra os “buracos na superfície antes da correção”: compare com os "
+        "outros exames; muito mais que os colegas pede atenção redobrada.",
+        "SAMSEG: a máscara VERMELHA deve cair nas manchas brancas da FLAIR (perto "
+        "dos ventrículos e na substância branca profunda), não na borda dos "
+        "ventrículos, no córtex ou no cerebelo.",
+        "Na observação, descreva o que viu (ex.: “pial corta o lobo temporal "
+        "esquerdo”). NUNCA escreva nome de paciente nem datas — o menu recusa "
+        "números que parecem datas.",
+    ], st))
+    F.append(Paragraph("<b>O que o resumo (item R) pode pedir</b>", st["body"]))
+    F.append(summary_table(st))
+    F.append(Paragraph(
+        "Na dúvida sobre uma série no item S, <b>não grave</b>: pergunte ao "
+        "responsável. O arquivo series_map.csv é compartilhado pelo estudo, e uma "
+        "regra errada manda a série para o lugar errado em todos os exames.",
+        st["warn"]))
+
+    F.append(Paragraph("5. Os passos, um a um (quando o responsável pedir)", st["h2"]))
+    F.append(Paragraph("Normalmente o processamento automático faz tudo isto "
+                       "sozinho. Quando o responsável pedir para rodar à mão, faça "
+                       "<b>em ordem</b> (0 → 1 → 2 → …). No passo 1 o menu "
                        "confirma antes a pasta dos exames (seção 3). Os passos "
                        "5 a 8 precisam do FreeSurfer (já instalado no "
-                       "computador de Recon pelo responsável).", st["body"]))
+                       "computador de Recon pelo responsável). Enquanto o "
+                       "processamento automático estiver rodando, o menu não "
+                       "deixa rodar passos à mão.", st["body"]))
     F.append(steps_table(st))
 
-    F.append(Paragraph("5. Regras de ouro (segurança e FAIR)", st["h2"]))
+    F.append(Paragraph("6. Regras de ouro (segurança e FAIR)", st["h2"]))
     F.append(Paragraph(
         "Estes dados são de pacientes reais. Trate cada arquivo original como "
         "“somente leitura”.", st["rule"]))
@@ -331,7 +453,7 @@ def build(path):
         "responsável. Não “tente consertar” no escuro.",
     ], st))
 
-    F.append(Paragraph("6. Se algo der errado", st["h2"]))
+    F.append(Paragraph("7. Se algo der errado", st["h2"]))
     F.append(bullets([
         "Dei dois cliques no iniciar.command e abriu um editor de texto (em vez "
         "de rodar): o arquivo perdeu a permissão de execução ao ser copiado. "
@@ -345,12 +467,13 @@ def build(path):
         "responsável tiver orientado.",
         "O passo 6 está “travado” há muito tempo: provavelmente está só "
         "demorando (é normal levar horas). Não feche no susto; confirme com o "
-        "responsável.",
+        "responsável. (O processamento automático, se for interrompido, "
+        "continua sozinho de onde parou na rodada seguinte.)",
         "Qualquer linha em vermelho com a palavra ERROR/MISMATCH: anote e "
         "mostre ao responsável antes de seguir.",
     ], st))
 
-    F.append(Paragraph("7. Perguntas frequentes (FAQ)", st["h2"]))
+    F.append(Paragraph("8. Perguntas frequentes (FAQ)", st["h2"]))
     F.append(Paragraph("Especialmente úteis na <b>primeira vez</b> num computador "
                        "novo (ex.: o Mac de Recon recém-preparado).", st["body"]))
     F.append(faq_table(st))
