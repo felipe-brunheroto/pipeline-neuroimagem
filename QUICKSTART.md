@@ -25,7 +25,9 @@ bash ~/pipeline-neuroimagem/start.command
 After that, double-click `start.command` (or keep using the line above). Each
 time it:
 
-1. updates the code from GitHub (`git pull`; data folders are never in git);
+1. checks GitHub for new code, lists the new commits and updates only if you
+   say yes (`--yes` never updates: code is never run unseen on a Mac that holds
+   patient files; data folders are never in git);
 2. prepares Python in `.venv/` (needs Python 3.10+, e.g. from python.org;
    the 3.9 that ships with macOS is too old for pydicom 3);
 3. loads FreeSurfer (`$FREESURFER_HOME`, else the newest `/Applications/freesurfer/*`);

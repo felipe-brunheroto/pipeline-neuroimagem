@@ -10,7 +10,9 @@
 #  let the nightly run take it.
 #
 #  Every time it:
-#    1. updates the code from GitHub (git pull; data folders are never in git)
+#    1. checks GitHub for new code, shows what changed and updates only if you
+#       say yes (this Mac may hold patient files: new code is never run
+#       unseen; --yes never updates). Data folders are never in git.
 #    2. prepares Python: .venv/ with requirements.txt (needs Python 3.10+)
 #    3. loads FreeSurfer ($FREESURFER_HOME, else the newest /Applications/freesurfer/*)
 #    4. imports new data - DICOM CDs, dcm2bids BIDS, finished FreeSurfer runs,
@@ -40,11 +42,24 @@ ask() {   # ask "question" -> 0 for yes
 }
 step() { echo; echo "== $1"; }
 
-step "1/6  Updating the code from GitHub"
-if [ -d .git ]; then
-    git pull --ff-only || echo "  (could not update - offline, or local changes; using this copy)"
-else
+step "1/6  Code updates from GitHub"
+if [ ! -d .git ]; then
     echo "  (not a git clone: not updating)"
+elif ! git fetch -q 2>/dev/null; then
+    echo "  (could not reach GitHub - offline? using this copy)"
+elif [ -z "$(git log --oneline HEAD..@{u} 2>/dev/null)" ]; then
+    echo "  up to date"
+else
+    # Show what would change before running it on this machine's data.
+    echo "  New code on GitHub:"
+    git log --oneline HEAD..@{u} | sed 's/^/    /'
+    if [ "$YES" = 1 ]; then
+        echo "  (--yes: not updating; run without --yes to review and update)"
+    elif ask "Update to this code?"; then
+        git pull --ff-only -q || echo "  (could not update - local changes? using this copy)"
+    else
+        echo "  keeping the current code"
+    fi
 fi
 
 step "2/6  Python"

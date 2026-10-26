@@ -25,7 +25,8 @@ WHERE EACH KIND GOES (folders from paths.py)
   session-map  an older sourcedata/session_map.tsv, when this project has none
 
 IT NEVER
-  * changes or deletes a source: it copies (verifying the copy); --move only
+  * changes or deletes a source: it copies (verifying every byte of the copy
+    against the source with SHA-256 before placing it); --move only
     renames on the same disk, and the inbox/ of pipeline.py uses that;
   * overwrites: a destination with the same content is "already there",
     with different content it is reported and nothing is done;
@@ -66,17 +67,26 @@ def code_label(text):
     return "sub-" + re.sub(r"[^0-9A-Za-z]", "", m.group(0)).upper() if m else None
 
 
-def fingerprint(path):
-    """Hash of every file's relative path and size: 'is this the same content?'
-    (cheap: no file is read)."""
+def _file_digest(f, h):
+    with open(f, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+
+
+def fingerprint(path, content=False):
+    """Hash of every file's relative path and size: 'is this the same item?'
+    (cheap: no file is read). content=True also hashes every byte, to verify a
+    copy of patient data before it is placed."""
     path = Path(path)
     h = hashlib.sha256()
     if path.is_file():
         h.update(f"{path.stat().st_size}".encode())
-        h.update(path.read_bytes())
+        _file_digest(path, h)
         return h.hexdigest()
     for f in sorted(p for p in path.rglob("*") if p.is_file() and p.name not in SKIP_FILES):
         h.update(f"{f.relative_to(path).as_posix()}\0{f.stat().st_size}\n".encode())
+        if content:
+            _file_digest(f, h)
     return h.hexdigest()
 
 
@@ -102,7 +112,7 @@ def place(src, dest, move, dry_run):
                         ignore=shutil.ignore_patterns(*SKIP_FILES))
     else:
         shutil.copy2(src, stage)
-    if fingerprint(src) != fingerprint(stage):
+    if fingerprint(src, content=True) != fingerprint(stage, content=True):
         shutil.rmtree(stage) if stage.is_dir() else stage.unlink()
         return "FAILED", "the copy did not match the source; nothing placed"
     os.replace(stage, dest)

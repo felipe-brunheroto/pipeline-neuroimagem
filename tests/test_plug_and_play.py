@@ -251,3 +251,28 @@ def test_cogaging_does_not_get_cbr_protocol_facts(ctx):
     assert "multi-inversion-time" not in readme and "Absent" not in readme
     assert "PHASE ONLY" not in (sd / "fmap" / "README").read_text()
     assert not list((sd / "fmap").rglob("*_phase.json"))
+
+
+def test_copy_with_same_size_but_other_bytes_is_rejected(tmp_path):
+    """A copy is verified byte by byte (SHA-256), not just by names and sizes:
+    a same-size corruption is caught and nothing is placed."""
+    projects = s.make_projects(tmp_path)
+    src = tmp_path / "CD_GER00077_X"
+    src.mkdir()
+    (src / "IM0001").write_bytes(b"DICM" * 64)
+    env = s.env_for(projects)
+    env["PIPELINE_PROJECT"] = "COGAGING"
+    probe = (
+        "import shutil, import_inputs as ii\n"
+        "real = shutil.copy2\n"
+        "def flip(a, b, **k):\n"
+        "    real(a, b, **k)\n"
+        "    data = bytearray(open(b, 'rb').read()); data[-1] ^= 1\n"
+        "    open(b, 'wb').write(bytes(data))\n"
+        "ii.shutil.copy2 = flip\n"
+        "dest = ii.paths.PATIENT_FILES / 'CD_GER00077_X'\n"
+        f"print(ii.place({str(src)!r}, dest, False, False)[0], dest.exists())\n")
+    r = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True,
+                       text=True, cwd=str(s.CODE), timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["FAILED", "False"]
