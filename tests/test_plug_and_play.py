@@ -216,7 +216,10 @@ def test_one_nightly_job_for_all_projects(ctx, tmp_path):
     r = pipeline(ctx, "schedule", "--at", "22:30", "--watch")
     assert r.returncode == 0, r.stdout + r.stderr
     job = plistlib.loads((agents / "org.pipeline-neuroimagem.nightly.plist").read_bytes())
-    assert "pipeline.py run --wait 720 --settle-wait 120" in job["ProgramArguments"][2]
+    # The path is shell-quoted when the repository folder has a space, so check
+    # the script and its arguments apart.
+    assert "pipeline.py" in job["ProgramArguments"][2]
+    assert "run --wait 720 --settle-wait 120" in job["ProgramArguments"][2]
     assert str(ctx["inbox"]) in job["WatchPaths"]
     assert not (agents / "org.pipeline-neuroimagem.batch.cbr.plist").exists()
 
