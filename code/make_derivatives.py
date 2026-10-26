@@ -17,14 +17,16 @@ honest, transparent naming -- and never inventing values:
      and `desc-` entities (e.g. ..._desc-ADC_dwi.nii.gz).
 
   2. bids/sourcedata/asl/                 <- raw ASL, PARTIALLY curated
-        One file per PASL inversion time, with a draft _asl.json (fields we could
-        read from the data filled in; everything we cannot know marked
-        REQUIRED_FILL_ME), an _aslcontext.tsv template, and a README that says
-        exactly what the researcher must supply. Nothing is fabricated.
+        A draft _asl.json (fields we could read from the data filled in;
+        everything we cannot know marked REQUIRED_FILL_ME), an _aslcontext.tsv
+        template, and a README that says exactly what the researcher must
+        supply. Nothing is fabricated. Facts a study declares about its own
+        protocol (project.json "acquisition"; CBR: multi-TI 3D PASL, one file
+        per inversion time, no M0) are filled in for that study only.
 
-  3. bids/sourcedata/fmap/                <- the phase-only field map
-        Copied with a README explaining the magnitude images were never acquired,
-        so a valid BIDS fieldmap is not possible from this data.
+  3. bids/sourcedata/fmap/                <- field maps pending curation
+        Copied with a README. CBR declares its field map phase-only (magnitude
+        never acquired), so no valid BIDS fieldmap is possible from its data.
 
   4. bids/sourcedata/unknown/             <- the "new strangers"
         Any series no rule could classify, copied verbatim with a README pointing
@@ -169,6 +171,50 @@ def build_scanner_derived(rows, output_dir, deriv_dir):
 _ASL_TI_RE = re.compile(r"asl[_ ]?3d[_ ]?(\d+)", re.IGNORECASE)
 
 
+# What a study declares about its own protocol (project.json "acquisition"):
+# CBR's multi-TI 3D PASL without M0, its phase-only field map. A study that
+# declares nothing gets REQUIRED_FILL_ME instead of another study's facts.
+ACQUISITION = paths.PROJECT.get("acquisition", {})
+
+GENERIC_ASL_README = (
+    "Raw ASL -- partial BIDS curation pending researcher input\n"
+    "=========================================================\n\n"
+    "The files here are the raw ASL series of this study. This project.json\n"
+    "declares nothing about its ASL protocol, so only what the sidecar itself\n"
+    "carries is kept; everything else is marked REQUIRED_FILL_ME:\n"
+    "  - ArterialSpinLabelingType (PASL / PCASL / CASL), M0Type\n"
+    "  - PostLabelingDelay (and LabelingDuration for (P)CASL, the bolus\n"
+    "    cut-off fields for PASL)\n"
+    "  - BackgroundSuppression, TotalAcquiredPairs\n"
+    "  - the per-volume order in each *_aslcontext.tsv\n"
+    "    (control / label / m0scan / deltam / cbf)\n\n"
+    "Facts that are always true of the protocol can be declared once under\n"
+    "\"acquisition\" in project.json. Once confirmed, move the files into\n"
+    "bids/<sub>/<ses>/perf/ to make a valid BIDS 'perf' datatype.\n")
+
+GENERIC_FMAP_README = (
+    "Field maps -- pending curation\n"
+    "==============================\n\n"
+    "The field-map series of this study, copied with de-identified sidecars.\n"
+    "A valid BIDS fieldmap needs the right set of images (e.g. phasediff +\n"
+    "magnitude1/2) and an IntendedFor list naming the scans it corrects; check\n"
+    "which images were exported, then move them into bids/<sub>/<ses>/fmap/.\n")
+
+
+def write_aslcontext(dest, stem, dest_nifti):
+    """aslcontext.tsv template -- the volume order (control/label/m0scan) is
+    NOT recorded in the headers, so the operator must confirm it."""
+    n_vol = _count_volumes(dest_nifti)
+    ctx_path = os.path.join(dest, stem + "context.tsv")
+    with open(ctx_path, "w", newline="", encoding="utf-8") as f:
+        f.write("volume_type\n")
+        if n_vol:
+            for _ in range(n_vol):
+                f.write("REQUIRED_FILL_ME\n")   # control|label|m0scan|deltam|cbf
+        else:
+            f.write("# one row per volume: control|label|m0scan|deltam|cbf\n")
+
+
 def build_asl_sourcedata(rows, output_dir, bids_dir):
     """Scaffold raw ASL under sourcedata/asl/, filling only what the data supports."""
     asl = [r for r in rows
@@ -186,7 +232,9 @@ def build_asl_sourcedata(rows, output_dir, bids_dir):
         inv = f"_inv-{ti_ms}" if ti_ms else ""
         dest = os.path.join(sd_dir, subject, session, "perf")
         os.makedirs(dest, exist_ok=True)
-        stem = f"{subject}_{session}_acq-pasl{inv}_asl"
+        acq = ACQUISITION.get("asl", {}).get("acq") or mb.acq_label(
+            row["series_description"])
+        stem = f"{subject}_{session}_acq-{acq}{inv}_asl"
 
         src_nifti = os.path.join(output_dir, row["output_nifti"])
         if not os.path.isfile(src_nifti):
@@ -199,9 +247,25 @@ def build_asl_sourcedata(rows, output_dir, bids_dir):
         # fill ONLY what we can justify from the data, and flag the rest.
         src_json = os.path.join(output_dir, row.get("output_json") or "")
         sidecar = _deid_sidecar_dict(src_json) if os.path.isfile(src_json) else {}
-        sidecar.setdefault("ArterialSpinLabelingType", "PASL")
-        sidecar.setdefault("MRAcquisitionType", "3D")
-        sidecar["M0Type"] = "Absent"   # no M0 series was acquired (verified)
+        facts = ACQUISITION.get("asl")
+        if facts:
+            sidecar.setdefault("ArterialSpinLabelingType", facts["ArterialSpinLabelingType"])
+            sidecar.setdefault("MRAcquisitionType", facts["MRAcquisitionType"])
+            sidecar["M0Type"] = facts["M0Type"]
+        else:
+            sidecar.setdefault("ArterialSpinLabelingType", "REQUIRED_FILL_ME")
+            sidecar.setdefault("M0Type", "REQUIRED_FILL_ME")
+        if sidecar["ArterialSpinLabelingType"] != "PASL":
+            # (P)CASL or not known: the PASL-only inferences below do not apply.
+            sidecar.setdefault("PostLabelingDelay", "REQUIRED_FILL_ME")
+            sidecar.setdefault("LabelingDuration", "REQUIRED_FILL_ME")
+            for field in ("BackgroundSuppression", "TotalAcquiredPairs"):
+                sidecar.setdefault(field, "REQUIRED_FILL_ME")
+            write_json(os.path.join(dest, stem + ".json"), sidecar)
+            write_aslcontext(dest, stem, dest_nifti)
+            n += 1
+            print(f"  sourcedata/asl/{subject}/{session}/perf/{stem}.nii.gz")
+            continue
 
         # PostLabelingDelay: prefer the sidecar's InversionTime (the PASL TI, in
         # seconds, exposed by dcm2niix); fall back to the value in the protocol
@@ -247,21 +311,13 @@ def build_asl_sourcedata(rows, output_dir, bids_dir):
         for field in ("BackgroundSuppression", "TotalAcquiredPairs"):
             sidecar.setdefault(field, "REQUIRED_FILL_ME")
         write_json(os.path.join(dest, stem + ".json"), sidecar)
-
-        # aslcontext.tsv template -- the volume order (control/label/m0scan) is
-        # NOT recorded in the headers, so the operator must confirm it.
-        n_vol = _count_volumes(dest_nifti)
-        ctx_path = os.path.join(dest, stem + "context.tsv")
-        with open(ctx_path, "w", newline="", encoding="utf-8") as f:
-            f.write("volume_type\n")
-            if n_vol:
-                for _ in range(n_vol):
-                    f.write("REQUIRED_FILL_ME\n")   # control|label|m0scan|deltam|cbf
-            else:
-                f.write("# one row per volume: control|label|m0scan|deltam|cbf\n")
+        write_aslcontext(dest, stem, dest_nifti)
         n += 1
         print(f"  sourcedata/asl/{subject}/{session}/perf/{stem}.nii.gz")
 
+    if not ACQUISITION.get("asl"):
+        write_text(os.path.join(sd_dir, "README"), GENERIC_ASL_README)
+        return n
     write_text(os.path.join(sd_dir, "README"),
         "Raw ASL (PASL) -- partial BIDS curation pending researcher input\n"
         "================================================================\n\n"
@@ -288,7 +344,7 @@ def build_asl_sourcedata(rows, output_dir, bids_dir):
 
 
 # ---------------------------------------------------------------------------
-# sourcedata/fmap/  -- phase-only field map (cannot be a valid BIDS fieldmap)
+# sourcedata/fmap/  -- field maps (CBR: phase only, not a valid BIDS fieldmap)
 # ---------------------------------------------------------------------------
 
 def build_fmap_sourcedata(rows, output_dir, bids_dir):
@@ -304,7 +360,9 @@ def build_fmap_sourcedata(rows, output_dir, bids_dir):
         acq = mb.acq_label(row["series_description"])
         dest = os.path.join(sd_dir, subject, session, "fmap")
         os.makedirs(dest, exist_ok=True)
-        stem = f"{subject}_{session}_acq-{acq}_phase"
+        suffix = ("phase" if ACQUISITION.get("fmap") == "phase_only"
+                  else row.get("bids_suffix") or "fmap")
+        stem = f"{subject}_{session}_acq-{acq}_{suffix}"
         src_nifti = os.path.join(output_dir, row["output_nifti"])
         if os.path.isfile(src_nifti):
             shutil.copy2(src_nifti, os.path.join(dest, stem + ".nii.gz"))
@@ -315,6 +373,9 @@ def build_fmap_sourcedata(rows, output_dir, bids_dir):
         n += 1
         print(f"  sourcedata/fmap/{subject}/{session}/fmap/{stem}.nii.gz")
 
+    if ACQUISITION.get("fmap") != "phase_only":
+        write_text(os.path.join(sd_dir, "README"), GENERIC_FMAP_README)
+        return n
     write_text(os.path.join(sd_dir, "README"),
         "Field map -- PHASE ONLY (not a valid BIDS fieldmap)\n"
         "===================================================\n\n"

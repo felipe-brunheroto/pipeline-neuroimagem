@@ -19,6 +19,11 @@ under `projects/<NAME>/` with a `project.json` describing it:
   `projects/COGAGING/sourcedata/received/` with `code/import_bids.py`.
   No defacing until the study decides about external sharing.
 
+The two studies are INDEPENDENT: they share only the code. Neither inherits the
+other's series rules (`projects/<NAME>/series_map.csv`), protocol facts
+(`project.json` "acquisition"), outputs, logs or QC. New data is routed to its
+study by the code in its name (`project.json` "code_pattern": CBR..., GER...).
+
 Each study's outputs live in a single, OpenNeuro-ready BIDS dataset under
 `projects/<NAME>/bids/` (raw `sub-*`, `sourcedata/`, and `derivatives/`), with
 provenance/import logs. See `STRUCTURE.md` for the full layout.
@@ -39,6 +44,10 @@ Main scripts (already written and tested):
 - `code/run_batch.py`          — unattended run of every pending step (lock,
                             logs + summary in `projects/<NAME>/logs/batch/`);
                             `code/install_schedule.py` schedules it nightly.
+- `start.command` / `code/pipeline.py` — plug and play for all studies: update,
+                            set up, import (DICOM, dcm2bids BIDS, FreeSurfer runs,
+                            old pipeline copies; `inbox/` drop box) and process;
+                            `code/import_inputs.py` places items, never overwriting.
 - `tests/`                     — self-tests on SYNTHETIC data only (generated at
                             test time under a temp `PIPELINE_PROJECTS_DIR`).
 

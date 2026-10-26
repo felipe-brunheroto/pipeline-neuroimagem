@@ -36,6 +36,11 @@ archive/
 logs/
 .batch.lock
 
+# The drop box of pipeline.py / start.command (new CDs, BIDS, FreeSurfer runs)
+# and the staging area of import_inputs.py: patient data, never in git.
+inbox/
+.importing/
+
 # Generated deliverables (PDF + handoff/export bundles). Rebuilt by the
 # make_report.py scripts / export_openneuro.py / git archive.
 deliverable/

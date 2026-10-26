@@ -917,8 +917,10 @@ def main():
                         help="threads per SAMSEG run (default 4).")
     parser.add_argument("--no-freesurfer", action="store_true",
                         help="Only the steps without FreeSurfer (conversion, BIDS).")
-    parser.add_argument("--min-free-gb", type=float, default=50,
-                        help="Refuse to start below this much free disk (default 50).")
+    parser.add_argument("--min-free-gb", type=float,
+                        default=float(os.environ.get("PIPELINE_MIN_FREE_GB", 50)),
+                        help="Refuse to start below this much free disk (default 50, "
+                             "or $PIPELINE_MIN_FREE_GB).")
     parser.add_argument("--settle-minutes", type=float, default=30,
                         help="An exam folder changed this recently is left for the "
                              "next run (still being copied?). Default 30.")

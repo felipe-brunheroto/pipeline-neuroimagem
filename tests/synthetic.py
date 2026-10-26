@@ -49,7 +49,9 @@ LEAK_STRINGS = sorted({v for v in FAKE.values()} | {
 # Series every synthetic exam carries: (SeriesDescription, 3D?, n_slices).
 CBR_SERIES = [("AAHead_Scout", False, 3),
               ("t1_mprage_sag_p2_iso", True, 6),
-              ("t2_space_da-fl3_sag", True, 6)]
+              ("t2_space_da-fl3_sag", True, 6),
+              ("asl_3d_1800", False, 2),
+              ("gre_field_mapping", False, 2)]
 COG_SERIES = [("survey", False, 3),
               ("T1 3D MPRAGE SAG", True, 6),
               ("3D FLAIR SAG", True, 6)]
@@ -169,6 +171,9 @@ def make_freesurfer(root, license=True, version="freesurfer-darwin-macOS-arm64-8
     (home / "build-stamp.txt").write_text(version + "\n")
     if license:
         (home / "license.txt").write_text("stub@example.org\n12345\n *AbCdEf\n")
+    # What start.command / launchd source to load it: put bin/ on PATH.
+    (home / "SetUpFreeSurfer.sh").write_text('export PATH="$FREESURFER_HOME/bin:$PATH"\n'
+                                             'export SUBJECTS_DIR="$FREESURFER_HOME/subjects"\n')
     for tool in FS_TOOLS:
         path = bin_dir / tool
         path.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{STUB}" {tool} "$@"\n')

@@ -5,6 +5,7 @@
   "input": "dicom",
   "subject_prefix": "GER",
   "subject_pattern": "GER\\d+",
+  "code_pattern": "GER\\d+",
   "sessions": "date_order",
   "sessions_note": "Exams of the same subject are numbered ses-1, ses-2, ... by exam date. The date -> number map stays in sourcedata/session_map.tsv (outside bids/). A new exam OLDER than one already numbered stops the run for a human decision.",
   "bids_import": true,

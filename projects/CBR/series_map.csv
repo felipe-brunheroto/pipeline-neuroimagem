@@ -1,0 +1,19 @@
+match_type,pattern,datatype,suffix,entities,derived,notes
+# CBR / NEUROCOVID series rules (same columns as code/series_map.csv). These rows
+# are checked BEFORE the shared map and the built-in keywords, and only for this
+# study. Matched against the lowercased SeriesDescription; first match wins.
+# Siemens Skyra 3T protocol of this cohort.
+#
+substring,t1_mprage,anat,T1w,,,Siemens MPRAGE structural
+substring,t2_space_da-fl3,anat,FLAIR,,,3D FLAIR (T2-SPACE variant) -- check before t2_space
+substring,t2_space,anat,T2w,,,3D T2-SPACE structural
+substring,axial difusao_adc,dwi,dwi,desc=ADC,yes,scanner-derived ADC map (no bvec)
+substring,axial difusao_tracew,dwi,dwi,desc=traceweighted,yes,scanner-derived trace-weighted (no bvec)
+substring,gre_field_mapping,fmap,phasediff,,,phase-only here -- magnitude not acquired (see sourcedata/fmap)
+regex,asl_3d_\d+,perf,asl,,,PASL multi-TI (TI/PLD is in the name; see sourcedata/asl)
+exact,perfusion_weighted,perf,,desc=perfusionWeighted,yes,scanner-derived perfusion map
+substring,swi_images,swi,swi,desc=swi,yes,SWI combined image
+substring,mag_images,swi,swi,desc=mag,yes,SWI magnitude
+substring,pha_images,swi,swi,desc=phase,yes,SWI phase
+substring,mip_images,swi,swi,desc=minIP,yes,SWI minimum-intensity projection
+substring,aahead_scout,misc,,,,localizer -- not BIDS data

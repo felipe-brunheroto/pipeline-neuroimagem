@@ -3,7 +3,8 @@ make_student_guide.py
 =====================
 
 Generates GUIA_DO_ALUNO.pdf — a Brazilian-Portuguese, non-programmer-friendly,
-step-by-step guide for students running the CBR pipeline on the Recon Mac.
+step-by-step guide for students of the neuroimaging pipeline (CBR and
+COGAGING, two independent studies sharing the same code).
 Self-contained (only needs reportlab). Contains NO patient data.
 
 Run (on a machine with reportlab):  python make_student_guide.py
@@ -199,7 +200,7 @@ def pointing_table(st):
         ["“Achei DICOM dentro de uma subpasta DICOM”",
          "Você apontou para DENTRO de um exame, não para a pasta que contém os "
          "exames.",
-         "Suba um nível: aponte para a pasta que tem dentro as CBR-xxx."],
+         "Suba um nível: aponte para a pasta que tem dentro as pastas dos exames."],
         ["“Esta pasta tem DICOM soltos, mas nenhuma subpasta de exame”",
          "Os arquivos estão soltos, sem a organização de um exame por pasta.",
          "Aponte para a pasta que contém as pastas dos exames, ou chame o "
@@ -295,7 +296,7 @@ def build(path):
     st = styles()
     doc = SimpleDocTemplate(path, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm,
                             topMargin=15*mm, bottomMargin=15*mm,
-                            title="Guia do Aluno - pipeline CBR")
+                            title="Guia do Aluno - pipeline de neuroimagem")
     F = []
     F.append(Paragraph("Guia do Aluno — do DICOM aos volumes do cérebro", st["title"]))
     F.append(Paragraph("Pipeline de neuroimagem (CBR e COGAGING) · FreeSurfer 8 · o computador "
@@ -343,20 +344,23 @@ def build(path):
     F.append(Paragraph("3. Onde ficam os arquivos (e como apontar para eles)",
                        st["h2"]))
     F.append(Paragraph(
-        "O mesmo pipeline atende <b>mais de um estudo</b> (CBR e COGAGING). Ao "
-        "abrir, o menu pergunta qual estudo você vai processar (o item <b>P</b> "
-        "troca depois). Cada estudo tem sua pasta dentro de <b>projects/</b>. "
-        "No CBR, que chega em DICOM, o passo 1 precisa saber em que pasta estão "
-        "os exames. Por padrão ele procura na pasta <b>Patient Files</b> do "
-        "estudo, com <b>um exame por subpasta</b>. O COGAGING funciona igual "
-        "(o nome de cada pasta precisa ter o código do sujeito, ex.: "
-        "<b>GER00039</b>); os sujeitos que já tinham sido convertidos com o "
-        "dcm2bids entram pelo item <b>I</b>, a partir de <b>sourcedata/received</b>:",
+        "O mesmo programa atende <b>dois estudos independentes</b>, CBR e "
+        "COGAGING: nenhum depende do outro, cada um tem sua pasta em "
+        "<b>projects/</b>, suas regras e seus resultados. Ao abrir, o menu "
+        "pergunta qual estudo você vai processar (o item <b>P</b> troca depois). "
+        "Os exames chegam em DICOM, <b>um exame por subpasta</b> na pasta "
+        "<b>Patient Files</b> do estudo, e o nome de cada pasta tem o código do "
+        "sujeito (<b>CBR-003</b>, <b>GER00039</b>...). O responsável coloca os "
+        "dados novos na pasta <b>inbox/</b> do projeto: o computador lê o código "
+        "no nome e leva cada exame para o estudo certo. No COGAGING, os sujeitos "
+        "que já tinham sido convertidos com o dcm2bids entram pelo item <b>I</b>, "
+        "a partir de <b>sourcedata/received</b>:",
         st["body"]))
     F.append(Preformatted(
         "Pipeline Neuroimagem/          (a pasta do projeto)\n"
         "  |- code/                     (os programas do pipeline)\n"
         "  |- Pipeline_Alunos/          (esta pasta: o menu do aluno)\n"
+        "  |- inbox/                    (dados novos: o computador distribui)\n"
         "  |    \\- iniciar.command\n"
         "  \\- projects/\n"
         "       |- CBR/\n"

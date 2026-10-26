@@ -9,6 +9,11 @@ macOS scheduler, so nobody needs to keep a Terminal open.
     python code/install_schedule.py --project COGAGING --at 22:30 --watch
     python code/install_schedule.py --project COGAGING --dry-run      # show, change nothing
     python code/install_schedule.py --project COGAGING --uninstall
+    python code/install_schedule.py --all --at 22:30   # ONE job for every project
+
+--all (what `pipeline.py schedule` uses) runs `pipeline.py run` each night:
+inbox/ first, then each project's batch in turn. It replaces the per-project
+jobs, which it removes.
 
 WHAT IT DOES
   Writes ~/Library/LaunchAgents/org.pipeline-neuroimagem.batch.<name>.plist
@@ -48,21 +53,53 @@ import subprocess
 import sys
 from pathlib import Path
 
-import paths
+# --all: one job for every project (pipeline.py run), so no project is picked
+# here and paths.py (which needs one) is not imported.
+ALL = "--all" in sys.argv
+if ALL:
+    sys.argv.remove("--all")
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    PROJECTS_DIR = Path(os.environ.get("PIPELINE_PROJECTS_DIR") or REPO_ROOT / "projects")
+else:
+    import paths
+    REPO_ROOT, PROJECTS_DIR = paths.REPO_ROOT, paths.PROJECTS_DIR
+
+PREFIX = "org.pipeline-neuroimagem."
 
 
 def label():
-    return f"org.pipeline-neuroimagem.batch.{paths.PROJECT_NAME.lower()}"
+    return PREFIX + ("nightly" if ALL else f"batch.{paths.PROJECT_NAME.lower()}")
 
 
-def plist_path():
-    return Path.home() / "Library" / "LaunchAgents" / f"{label()}.plist"
+def agents_dir():
+    return Path.home() / "Library" / "LaunchAgents"
+
+
+def plist_path(name=None):
+    return agents_dir() / f"{name or label()}.plist"
+
+
+def log_path():
+    return (REPO_ROOT / "logs" / "nightly.log") if ALL else (paths.BATCH_DIR / "launchd.log")
+
+
+def watch_paths():
+    """Folders whose change starts a run (--watch)."""
+    if not ALL:
+        return [str(paths.PATIENT_FILES)]
+    folders = [str(PROJECTS_DIR.parent / "inbox")]           # as pipeline.py
+    folders += [str(p.parent / "Patient Files") for p in sorted(PROJECTS_DIR.glob("*/project.json"))]
+    return folders
 
 
 def job(args, fs_home):
     """The launchd job description (a dict, written with plistlib)."""
-    batch = [sys.executable, str(paths.CODE_DIR / "run_batch.py"),
-             "--project", paths.PROJECT_NAME, "--wait", "720"]
+    if ALL:
+        batch = [sys.executable, str(REPO_ROOT / "code" / "pipeline.py"), "run",
+                 "--wait", "720"]
+    else:
+        batch = [sys.executable, str(paths.CODE_DIR / "run_batch.py"),
+                 "--project", paths.PROJECT_NAME, "--wait", "720"]
     if args.watch:
         batch += ["--settle-wait", "120"]
     if args.no_freesurfer:
@@ -72,9 +109,9 @@ def job(args, fs_home):
         script += [f"export FREESURFER_HOME={shlex.quote(fs_home)}",
                    'if [ -f "$FREESURFER_HOME/SetUpFreeSurfer.sh" ]; then '
                    'source "$FREESURFER_HOME/SetUpFreeSurfer.sh" >/dev/null; fi']
-    script += [f"cd {shlex.quote(str(paths.REPO_ROOT))}",
+    script += [f"cd {shlex.quote(str(REPO_ROOT))}",
                "exec " + " ".join(shlex.quote(a) for a in batch)]
-    log = str(paths.BATCH_DIR / "launchd.log")
+    log = str(log_path())
     env = {"PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
     for name in ("PIPELINE_PROJECTS_DIR", "FS_LICENSE"):
         if os.environ.get(name):
@@ -90,7 +127,7 @@ def job(args, fs_home):
         "RunAtLoad": False,
     }
     if args.watch:
-        plist["WatchPaths"] = [str(paths.PATIENT_FILES)]
+        plist["WatchPaths"] = watch_paths()
         plist["ThrottleInterval"] = 900
     return plist
 
@@ -103,12 +140,21 @@ def launchctl(*cmd):
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
-def unload():
-    """Stop/unload the job if it is loaded (no error if it is not)."""
-    domain = f"gui/{os.getuid()}"
-    ok, _ = launchctl("bootout", f"{domain}/{label()}")
-    if not ok and plist_path().is_file():
-        launchctl("unload", str(plist_path()))
+def unload(name=None):
+    """Stop/unload a job if it is loaded (no error if it is not)."""
+    name = name or label()
+    ok, _ = launchctl("bootout", f"gui/{os.getuid()}/{name}")
+    if not ok and plist_path(name).is_file():
+        launchctl("unload", str(plist_path(name)))
+
+
+def remove_per_project_jobs():
+    """The all-projects job replaces the per-project ones (else data would be
+    processed twice a night)."""
+    for old in sorted(agents_dir().glob(PREFIX + "batch.*.plist")):
+        unload(old.stem)
+        old.unlink()
+        print(f"Removed the per-project job {old.name} (the nightly job covers it).")
 
 
 def check_time(text):
@@ -147,7 +193,7 @@ def main():
         if plist_path().is_file():
             plist_path().unlink()
             print(f"Removed {plist_path()} (the nightly batch of "
-                  f"{paths.PROJECT_NAME} will not run any more).")
+                  f"{'every project' if ALL else paths.PROJECT_NAME} will not run any more).")
         else:
             print(f"Nothing to remove: {plist_path()} does not exist.")
         return
@@ -167,21 +213,25 @@ def main():
         print(data)
         return
 
-    paths.BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    log_path().parent.mkdir(parents=True, exist_ok=True)
     plist_path().parent.mkdir(parents=True, exist_ok=True)
+    if ALL:
+        remove_per_project_jobs()
     unload()
     plist_path().write_text(data, encoding="utf-8")
     ok, text = launchctl("bootstrap", f"gui/{os.getuid()}", str(plist_path()))
     if not ok and shutil.which("launchctl"):
         ok, text = launchctl("load", "-w", str(plist_path()))
     print("=" * 70)
-    print(f" Nightly batch for {paths.PROJECT_NAME}: every day at {args.at}"
-          + (" + when a folder is added to Patient Files/" if args.watch else ""))
+    who = "every project (inbox/ first)" if ALL else paths.PROJECT_NAME
+    print(f" Nightly batch for {who}: every day at {args.at}"
+          + (" + when a folder is added" if args.watch else ""))
     print(f"   job file : {plist_path()}")
     print(f"   loaded   : {'yes' if ok else 'NO - ' + text}")
     print(f"   FreeSurfer: {fs_home or '(not used)'}")
     print(f"   log      : {plist['StandardOutPath']}")
-    print(f"   summary  : {paths.BATCH_DIR / 'last_summary.md'}")
+    print("   summary  : projects/<NAME>/logs/batch/last_summary.md" if ALL
+          else f"   summary  : {paths.BATCH_DIR / 'last_summary.md'}")
     print("=" * 70)
     print(" Test it now:  launchctl kickstart gui/$(id -u)/" + label())
     print(" Wake the Mac for it (once, needs your password):")
@@ -189,9 +239,9 @@ def main():
     wake = (hour * 60 + minute - 5) % (24 * 60)
     print(f"   sudo pmset repeat wakeorpoweron MTWRFSU {wake // 60:02d}:{wake % 60:02d}:00")
     home = str(Path.home())
-    if any(str(paths.REPO_ROOT).startswith(os.path.join(home, d))
+    if any(str(REPO_ROOT).startswith(os.path.join(home, d))
            for d in ("Documents", "Desktop", "Downloads")) \
-            or str(paths.REPO_ROOT).startswith("/Volumes/"):
+            or str(REPO_ROOT).startswith("/Volumes/"):
         print(" NOTE: the project is in a folder macOS protects. If launchd.log says")
         print("   'Operation not permitted', give /bin/bash Full Disk Access (System")
         print("   Settings > Privacy & Security) or move the project to e.g. ~/pipeline.")

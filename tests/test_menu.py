@@ -89,7 +89,7 @@ def test_rule_validation(tmp_path):
 
 def test_rule_is_appended_and_used(tmp_path):
     m = load_menu()
-    path = tmp_path / "series_map.csv"                               # CBR has none yet
+    path = tmp_path / "series_map.csv"                               # a study without one
     assert m.gravar_regra(path, rule(notes="localizer, with a comma"), "AB")
     assert m.gravar_regra(path, rule(pattern="other_seq", datatype="anat",
                                      suffix="T2w"), "")

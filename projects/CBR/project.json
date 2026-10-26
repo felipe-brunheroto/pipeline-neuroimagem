@@ -4,8 +4,14 @@
   "description": "Chemobrain cohort: longitudinal structural MRI (Siemens Skyra 3T), with SWI, clinical DWI and, in some exams, multi-TI PASL.",
   "input": "dicom",
   "subject_prefix": "CBR",
+  "code_pattern": "CBR[-_ ]?\\d+",
   "sessions": "folder_suffix",
   "sessions_note": "Visit index from the exam folder suffix: CBR-003 -> ses-1 (baseline), CBR-003.2 -> ses-2 (6 months), CBR-003.3 -> ses-3 (12 months).",
   "recon": {"pial": "flair", "flags": []},
+  "acquisition": {
+    "asl": {"ArterialSpinLabelingType": "PASL", "MRAcquisitionType": "3D", "M0Type": "Absent", "acq": "pasl"},
+    "fmap": "phase_only"
+  },
+  "acquisition_note": "Facts about this protocol, verified in its DICOMs: multi-TI 3D PASL without an M0 series, and a gre_field_mapping that exported the phase image only. make_derivatives.py writes them into the ASL / field-map scaffolds; a study that does not declare them gets REQUIRED_FILL_ME for the researcher.",
   "steps": {"deface": true, "samseg": false}
 }

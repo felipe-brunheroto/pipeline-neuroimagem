@@ -17,8 +17,9 @@ being copy-pasted. `dicom_to_bids.py` uses it to sort series into folders;
 
 TWO LAYERS, AND "THE MAP WINS"
 ------------------------------
-  1. series_map.csv  -- an operator-editable file (shipped with the project's
-     current CBR defaults). Each row maps a description match to a datatype +
+  1. series_map.csv  -- operator-editable files: each study's own
+     projects/<NAME>/series_map.csv first, then the shared code/series_map.csv
+     (rules true of any scanner). Each row maps a description match to a datatype +
      suffix + entities. This is how you teach the pipeline about a NEW project
      (e.g. a future BOLD study) WITHOUT touching any code.
   2. built-in keyword rules -- sensible defaults for typical Siemens/GE series
