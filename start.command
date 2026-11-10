@@ -45,8 +45,10 @@ step() { echo; echo "== $1"; }
 step "1/6  Code updates from GitHub"
 if [ ! -d .git ]; then
     echo "  (not a git clone: not updating)"
-elif ! git fetch -q 2>/dev/null; then
-    echo "  (could not reach GitHub - offline? using this copy)"
+elif ! GIT_TERMINAL_PROMPT=0 git fetch -q 2>/dev/null </dev/null; then
+    # Never stop to ask for a GitHub login: on a shared Mac the account is
+    # signed out after setup (gh auth logout), and that must not block a run.
+    echo "  (could not reach GitHub - offline or signed out? using this copy)"
 elif [ -z "$(git log --oneline HEAD..@{u} 2>/dev/null)" ]; then
     echo "  up to date"
 else

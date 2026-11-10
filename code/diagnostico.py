@@ -452,9 +452,13 @@ def codigo(offline):
                           "Avise o responsavel; ele decide se vira commit ou se desfaz."))
     if offline:
         return itens
-    cod, _ = roda(["git", "-C", str(REPO), "fetch", "-q"], timeout=30)
+    # Sem login no GitHub (gh auth logout num Mac compartilhado) o git perguntaria usuario e
+    # senha e travaria aqui; GIT_TERMINAL_PROMPT=0 faz ele so falhar.
+    cod, _ = roda(["git", "-C", str(REPO), "fetch", "-q"], timeout=30,
+                  env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, stdin=subprocess.DEVNULL)
     if cod != 0:
-        itens.append(Item(A, "Atualizacoes", INFO, "sem acesso ao GitHub agora (sem internet?)"))
+        itens.append(Item(A, "Atualizacoes", INFO, "sem acesso ao GitHub agora (sem internet, ou "
+                          "sem login, o que e normal num Mac compartilhado)"))
         return itens
     _, n = roda(["git", "-C", str(REPO), "rev-list", "--count", "HEAD..@{u}"])
     novos = int(n) if n.isdigit() else 0
