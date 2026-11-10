@@ -10,6 +10,7 @@ macOS scheduler, so nobody needs to keep a Terminal open.
     python code/install_schedule.py --project COGAGING --dry-run      # show, change nothing
     python code/install_schedule.py --project COGAGING --uninstall
     python code/install_schedule.py --all --at 22:30   # ONE job for every project
+    python code/install_schedule.py --all --at 22:30 --jobs 2   # at most 2 recon-all at once
 
 --all (what `pipeline.py schedule` uses) runs `pipeline.py run` each night:
 inbox/ first, then each project's batch in turn. It replaces the per-project
@@ -102,6 +103,8 @@ def job(args, fs_home):
                  "--project", paths.PROJECT_NAME, "--wait", "720"]
     if args.watch:
         batch += ["--settle-wait", "120"]
+    if args.jobs:
+        batch += ["--jobs", str(args.jobs)]
     if args.no_freesurfer:
         batch += ["--no-freesurfer"]
     script = []
@@ -157,6 +160,13 @@ def remove_per_project_jobs():
         print(f"Removed the per-project job {old.name} (the nightly job covers it).")
 
 
+def check_jobs(text):
+    """argparse type for --jobs: a whole number from 1 up."""
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError(f"--jobs must be 1 or more, not {text!r}")
+    return int(text)
+
+
 def check_time(text):
     try:
         hour, minute = (int(x) for x in text.split(":"))
@@ -179,6 +189,10 @@ def main():
                         help="Also run when a new folder appears in Patient Files/.")
     parser.add_argument("--no-freesurfer", action="store_true",
                         help="Schedule only the steps without FreeSurfer.")
+    parser.add_argument("--jobs", type=check_jobs, default=0,
+                        help="At most N recon-all at once (default: as many as the cores "
+                             "and memory allow). Lower it on a Mac shared with other heavy "
+                             "work: each recon-all takes ~8 GB.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print the job; write and load nothing.")
     parser.add_argument("--uninstall", action="store_true",
@@ -229,6 +243,7 @@ def main():
     print(f"   job file : {plist_path()}")
     print(f"   loaded   : {'yes' if ok else 'NO - ' + text}")
     print(f"   FreeSurfer: {fs_home or '(not used)'}")
+    print(f"   recon-all : {f'at most {args.jobs} at once' if args.jobs else 'as many as fit (auto)'}")
     print(f"   log      : {plist['StandardOutPath']}")
     print("   summary  : projects/<NAME>/logs/batch/last_summary.md" if ALL
           else f"   summary  : {paths.BATCH_DIR / 'last_summary.md'}")

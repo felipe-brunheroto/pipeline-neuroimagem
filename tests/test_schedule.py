@@ -9,6 +9,7 @@ temporary folder, so nothing is scheduled on the machine running the tests.
 import os
 import plistlib
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,3 +72,22 @@ def test_install_needs_to_know_which_freesurfer(tmp_path):
     assert "FREESURFER_HOME" not in job["ProgramArguments"][2]
     r = s.run("install_schedule.py", "COGAGING", env, "--at", "25:00", "--no-freesurfer")
     assert r.returncode != 0
+
+
+def test_jobs_cap_reaches_the_nightly_batch(tmp_path):
+    """--all --jobs 2: the job runs `pipeline.py run ... --jobs 2`, which passes it to
+    every project's run_batch.py (a Mac shared with other heavy work)."""
+    env, _plist, _log, _projects = make_env(tmp_path)
+    nightly = Path(env["HOME"]) / "Library/LaunchAgents/org.pipeline-neuroimagem.nightly.plist"
+    def run_all(*args):   # --all picks no project, so not s.run (which adds --project)
+        return subprocess.run([sys.executable, str(s.CODE / "install_schedule.py"), "--all", *args],
+                              env=env, capture_output=True, text=True, cwd=str(s.REPO))
+
+    r = run_all("--at", "22:30", "--jobs", "2")
+    assert r.returncode == 0, r.stdout + r.stderr
+    script = plistlib.loads(nightly.read_bytes())["ProgramArguments"][2]
+    assert "pipeline.py" in script and "run --wait 720 --jobs 2" in script
+    assert "at most 2 at once" in r.stdout
+
+    r = run_all("--jobs", "0")
+    assert r.returncode != 0 and "--jobs must be 1 or more" in r.stderr

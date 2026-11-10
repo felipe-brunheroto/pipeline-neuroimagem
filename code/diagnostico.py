@@ -166,6 +166,17 @@ def corrigir_licenca(home):
     return acao
 
 
+def limite_agendado():
+    """O --jobs gravado no agendamento atual (0 = automatico), para nao perde-lo ao reinstalar."""
+    try:
+        with (AGENTS / (PREFIX + "nightly.plist")).open("rb") as f:
+            texto = " ".join(plistlib.load(f).get("ProgramArguments", []))
+    except Exception:
+        return 0
+    m = re.search(r"--jobs['\"]? ['\"]?(\d+)", texto)
+    return int(m.group(1)) if m else 0
+
+
 def corrigir_agendamento(home):
     def acao():
         if not VENV_PY.exists():
@@ -176,7 +187,9 @@ def corrigir_agendamento(home):
         env = dict(os.environ)
         if home:
             env["FREESURFER_HOME"] = home
-        return subprocess.run([py, str(CODE / "pipeline.py"), "schedule", "--at", HORA_PADRAO],
+        limite = limite_agendado()
+        extra = ["--jobs", str(limite)] if limite else []
+        return subprocess.run([py, str(CODE / "pipeline.py"), "schedule", "--at", HORA_PADRAO, *extra],
                               cwd=str(REPO), env=env).returncode == 0
     return acao
 
@@ -322,6 +335,9 @@ def automatico():
             texto = " ".join(job.get("ProgramArguments", []))
             hora = job.get("StartCalendarInterval", {})
             quando = f"{hora.get('Hour', 0):02d}:{hora.get('Minute', 0):02d}" if hora else "?"
+            j = re.search(r"--jobs['\"]? ['\"]?(\d+)", texto)
+            limite = (f", ate {j.group(1)} FreeSurfer ao mesmo tempo" if j
+                      else ", FreeSurfer: quantos couberem")
             m = re.search(r"cd ('[^']*'|\S+)", texto)
             pasta = m.group(1).strip("'").rstrip(";") if m else ""
             carregado = roda(["launchctl", "print", f"gui/{os.getuid()}/{job.get('Label', p.stem)}"],
@@ -336,7 +352,8 @@ def automatico():
             if p != noturno:
                 problemas.append("e o agendamento antigo, por estudo (o atual cobre todos)")
             itens.append(Item(A, "Agendamento", ATENCAO if problemas else OK,
-                              f"todo dia as {quando}" + ("; " + "; ".join(problemas) if problemas else ""),
+                              f"todo dia as {quando}{limite}"
+                              + ("; " + "; ".join(problemas) if problemas else ""),
                               "O processamento da noite precisa rodar ESTA copia do pipeline, com o "
                               "FreeSurfer instalado." if problemas else "",
                               "Aceite a correcao abaixo: ela reinstala e remove os antigos."

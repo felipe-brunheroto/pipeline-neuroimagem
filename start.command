@@ -144,8 +144,14 @@ step "6/6  Every night"
 PLIST="$HOME/Library/LaunchAgents/org.pipeline-neuroimagem.nightly.plist"
 if [ -f "$PLIST" ]; then
     echo "  already scheduled ($PLIST)"
+    echo "  (to cap recon-all at night: $PYV code/pipeline.py schedule --at 22:30 --jobs 2)"
 elif [ "$YES" = 0 ] && ask "Import inbox/ and process every project every night at 22:30?"; then
-    $PYV code/pipeline.py schedule --at 22:30 "${NOFS[@]}"
+    # Each recon-all takes ~8 GB. On a Mac shared with other heavy work (another
+    # study's own scripts, Docker), cap how many run at once.
+    JOBS=()
+    read -r -p "  How many recon-all at once? (ENTER = as many as fit; 2 if this Mac is shared) " n
+    [[ "$n" =~ ^[1-9][0-9]*$ ]] && JOBS=(--jobs "$n")
+    $PYV code/pipeline.py schedule --at 22:30 "${JOBS[@]}" "${NOFS[@]}"
 else
     echo "  not scheduled (later: .venv/bin/python code/pipeline.py schedule --at 22:30)"
 fi
