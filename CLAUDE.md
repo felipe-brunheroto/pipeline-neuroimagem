@@ -34,6 +34,9 @@ of truth for where data lives.
 
 Main scripts (already written and tested):
 - `code/check_environment.py` — checks that Python, dcm2niix and pydicom are ready.
+- `code/diagnostico.py`        — guided check of the whole Mac, in Portuguese, for
+                            students (FreeSurfer + license, disk, FileVault, the
+                            nightly job, last runs); safe fixes only on a per-item yes.
 - `code/dicom_to_bids.py`      — DICOM projects: reads DICOMs, converts with
                             dcm2niix, sorts outputs, writes provenance.csv and
                             validation_report.csv into `bids/sourcedata/conversion/`.

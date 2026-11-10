@@ -72,8 +72,11 @@ def bullets(items, st, style="body"):
 def steps_table(st):
     rows = [
         ["Nº", "O que você manda fazer", "O que acontece / onde fica o resultado"],
-        ["0", "Checar o ambiente",
-         "Confere se as ferramentas estão instaladas. Não muda nada."],
+        ["0", "Diagnóstico do computador",
+         "Confere o computador inteiro e explica cada item em português: "
+         "ferramentas, FreeSurfer e licença, disco, criptografia, processamento "
+         "da noite. Só muda algo se você responder “s”. Também abre com dois "
+         "cliques em diagnostico.command."],
         ["1", "Converter DICOM em NIfTI",
          "Lê os exames da pasta de dados confirmada (seção 3) e cria as imagens "
          ".nii.gz organizadas em bids/sourcedata/conversion/, com provenance.csv "
@@ -103,7 +106,7 @@ def steps_table(st):
          "Só no COGAGING. Alinha a FLAIR ao T1, roda o SAMSEG (~5 min por exame) "
          "e gera bids/derivatives/samseg/samseg_lesions.tsv: volume da lesão em "
          "mm³ e em % do intracraniano. Depois, faça o QC visual que o programa "
-         "mostra no fim. Precisa do FreeSurfer do Mac Mini."],
+         "mostra no fim. Precisa do FreeSurfer do Mac de processamento."],
         ["I", "Importar BIDS já convertido",
          "Só no COGAGING: traz os sujeitos que a equipe já tinha convertido com o "
          "dcm2bids (pasta sourcedata/received). Numera as sessões pela data e "
@@ -242,10 +245,13 @@ def faq_table(st):
          "direito em iniciar.command → Abrir → Abrir (só na primeira vez)."],
         ["“python3” não é reconhecido, ou o Mac pede para instalar ferramentas.",
          "Aceite instalar as “Command Line Tools” (ou instale o Python pelo "
-         "python.org). Depois rode o passo 0 para conferir."],
-        ["O passo 0 diz que falta o dcm2niix (ou o pydicom).",
-         "Na pasta do projeto, rode  python3 -m pip install -r requirements.txt  "
-         "e depois rode o passo 0 de novo. O próprio passo 0 mostra como."],
+         "python.org). Depois rode o item 0 (ou diagnostico.command) para conferir."],
+        ["O item 0 diz que FALTA algo (Python, dcm2niix, licença, agendamento…).",
+         "Cada item vem com “por que importa” e “como resolver”. Responda “s” "
+         "quando ele oferecer a correção; o que precisa de senha de administrador "
+         "ele explica e o responsável faz. Na dúvida, não improvise: o "
+         "diagnostico.command salva o relatório em logs/diagnostico/ (sem dado de "
+         "paciente) — mande ao responsável."],
         ["Os passos 5 a 8 dão erro de FreeSurfer.",
          "O FreeSurfer 8 precisa estar instalado e “carregado” nesta janela do "
          "Terminal. Isso é tarefa do responsável (um comando por janela)."],
@@ -259,8 +265,8 @@ def faq_table(st):
          "(passos 4–8; as lesões do SAMSEG ficam em bids/derivatives/samseg/). "
          "Os DICOM originais nunca são alterados."],
         ["O SAMSEG (passo 8) parou com “Abort trap: 6”.",
-         "Ele precisa do FreeSurfer nativo do Mac Mini (o de Intel via Rosetta "
-         "não tem AVX). Rode o passo 8 no Mac Mini."],
+         "Ele precisa do FreeSurfer nativo do Mac de processamento (o de Intel via Rosetta "
+         "não tem AVX). Rode o passo 8 no Mac de processamento."],
         ["A conversão parou dizendo que um exame novo é MAIS ANTIGO que outro.",
          "É de propósito: as sessões são numeradas pela data e não mudam depois. "
          "Chame o responsável para decidir a numeração."],
@@ -400,7 +406,7 @@ def build(path):
     F.append(Paragraph("4. O que precisa de você (itens R, C e S)", st["h2"]))
     F.append(Paragraph(
         "As etapas longas — conversão, BIDS, FreeSurfer (1h30 por exame) e "
-        "SAMSEG — rodam <b>sozinhas, toda noite</b>, no Mac Mini (o "
+        "SAMSEG — rodam <b>sozinhas, toda noite</b>, no Mac de processamento (o "
         "“processamento automático”). Ele só processa o que é novo ou ficou "
         "pela metade: um CD novo colocado em <b>Patient Files</b> entra na "
         "próxima noite. O que o computador <b>não</b> sabe fazer é olhar as "
