@@ -47,6 +47,10 @@ time it:
 5. processes every study now (or leaves it for the night);
 6. offers to repeat 4–5 every night at 22:30 (one launchd job for all studies).
 
+Something looks wrong (nothing processed overnight, a step refuses to start)?
+Double-click `Pipeline_Alunos/diagnostico.command`: it checks this Mac, explains
+each item in Portuguese and offers the safe fixes.
+
 From then on, new data only needs to be **dropped in `inbox/`** (next to
 `projects/`): the next run moves each item into its study and processes it.
 

@@ -58,6 +58,7 @@ path-editing is needed when moving the project.
 |------|------------|
 | `paths.py` | One place that defines the layout (`PATIENT_FILES`, `BIDS_ROOT`, `CONVERSION_DIR`, `FREESURFER_DIR`, …) for the project chosen with `--project`. Imported by the other scripts. |
 | `check_environment.py` | Verifies Python, dcm2niix, pydicom are installed, **and creates the `Patient Files/` input folder** (with a README) on first run so data is dropped in the right place. |
+| `diagnostico.py` | **Guided check of this Mac, in Portuguese, for students**: Python/.venv, dcm2niix, FreeSurfer (native arm64) and its license, free disk, FileVault, project folder outside the macOS-protected folders, the nightly launchd job (points at THIS copy? loaded? wake schedule?), the last run of each study, and code updates. Each item says why it matters and how to fix it; safe fixes (.venv, license copy, reinstalling the schedule) only on a per-item "s". Counts only: never a patient or exam folder name; never sudo. `--salvar` writes the report to `logs/diagnostico/`. Double-click: `Pipeline_Alunos/diagnostico.command`; menu item 0. |
 | `setup_workspace.py` | Creates/validates the `Patient Files/` drop folder and diagnoses common mistakes (pointing inside one exam, empty folder). Imported by the two above; also runnable directly. |
 | `series_classifier.py` | Shared rules that decide each series' datatype + BIDS suffix. Reads `series_map.csv` first, then built-in keywords; unrecognized → `unknown`. |
 | `series_map.csv` | **Operator-editable** map: teaches the pipeline new series (e.g. a future BOLD study) without code changes. |
@@ -71,7 +72,7 @@ path-editing is needed when moving the project.
 | `deface_anat.py` | Defaces the anatomicals (T1/T2/FLAIR) with FreeSurfer `mideface`, reading `bids/` and writing `bids/derivatives/defaced/` with `desc-defaced` names + a derivatives `dataset_description.json`. Needs FreeSurfer 7.3+. Run AFTER `make_bids.py`. |
 | `run_recon_long.py` | Analysis driver (runs on the **FreeSurfer 8 Mac**): plans + runs the longitudinal stream (cross → base → long) into `bids/derivatives/freesurfer/`. `--dry-run` needs no FreeSurfer. |
 | `extract_fs_stats.py` | Final step: wraps `asegstats2table`/`aparcstats2table` into tidy tables under `bids/derivatives/freesurfer/stats/`. `--dry-run` prints the plan. |
-| `run_batch.py` | **Unattended processing** (Mac Mini, nightly): runs every step that applies to the project, in order, only for new or unfinished work; safe to re-run at any time. Lock, per-run logs and an end-of-run summary in `projects/<NAME>/logs/batch/`. See [Unattended batch](#unattended-batch-mac-mini). |
+| `run_batch.py` | **Unattended processing** (processing Mac, nightly): runs every step that applies to the project, in order, only for new or unfinished work; safe to re-run at any time. Lock, per-run logs and an end-of-run summary in `projects/<NAME>/logs/batch/`. See [Unattended batch](#unattended-batch-processing-mac). |
 | `install_schedule.py` | Installs/removes the nightly launchd job (`~/Library/LaunchAgents/…plist`): `--all` (what `pipeline.py schedule` uses) runs every study, `--project NAME` one; `--watch` also runs it when a folder is added. |
 | `pipeline.py` | **Plug-and-play front door, all studies at once**: `import` (recognises DICOM CDs, dcm2bids `sub-*`, FreeSurfer runs and old pipeline copies anywhere in the folders given, and routes each by its study code), `run` (inbox, then every study's batch), `schedule`, `status`. |
 | `import_inputs.py` | Places one kind of item into one study (via `paths.py`): never overwrites, never deletes a source, never guesses; FreeSurfer runs are renamed to `sub-X_ses-N` and kept apart when made by another FreeSurfer version. |
@@ -204,7 +205,7 @@ automatically (by name or DICOM `ImageType`); resting-state becomes
 `TaskName`.
 
 To verify `bids/` is BIDS-valid, run the official validator on a machine that
-has it (e.g. the FreeSurfer/recon Mac): `deno run -A jsr:@bids/validator bids`,
+has it (e.g. the processing Mac): `deno run -A jsr:@bids/validator bids`,
 or `npx @bids/validator bids`. A quick local sanity check: `pip install pybids`
 then `python -c "from bids import BIDSLayout; print(BIDSLayout('bids'))"`.
 The data never leaves the machine in any case.
@@ -232,17 +233,19 @@ Subjects already converted with dcm2bids: put their `sub-*` folders in
 already in `bids/` (`--force` rebuilds). `run_recon_long.py` refuses to mix
 FreeSurfer versions in one SUBJECTS_DIR (`--allow-mixed-versions` overrides).
 
-## Structural analysis (FreeSurfer 8 — on the dedicated recon Mac)
+## Structural analysis (FreeSurfer 8 — on the processing Mac)
 
-Conversion/defacing/QC happen on the conversion Mac; the heavy recon runs on a
-separate **M4 / 64 GB Mac with FreeSurfer 8** (native Apple-Silicon — no Rosetta;
-needs a free FreeSurfer license registered to `$FREESURFER_HOME/license.txt`).
+The whole chain runs on **one processing Mac** (M4 Pro / 64 GB, **FreeSurfer 8**
+native Apple-Silicon — no Rosetta; free license in `$FREESURFER_HOME/license.txt`):
+the raw, identified DICOM is copied to it once, and conversion, de-identification,
+BIDS, defacing, recon and tables all run there, answering only to what happens on
+that machine. Nothing moves between computers mid-chain. `code/diagnostico.py`
+checks that Mac (see the table above).
 
 Workflow:
 
-1. **Deface, then transfer.** Run `deface_anat.py` (this Mac or the recon Mac),
-   then move the defaced anatomicals to the recon Mac by an approved local
-   method — never personal cloud. Point recon at the defaced tree.
+1. **Deface.** `deface_anat.py` (the nightly batch runs it when `steps.deface` is
+   on). Recon can read the defaced tree.
 2. **Source FreeSurfer 8**, then plan and run the longitudinal stream:
    ```bash
    export FREESURFER_HOME=/Applications/freesurfer/8.0.0
@@ -274,7 +277,7 @@ until step 2 has run and an audit shows zero identifying fields.
 
 ---
 
-## Unattended batch (Mac Mini)
+## Unattended batch (processing Mac)
 
 With ~74 COGAGING subjects arriving over time, nobody should have to sit in
 front of recon-all. `run_batch.py` runs **everything that is pending, in
@@ -334,7 +337,7 @@ python3 code/install_schedule.py --all --uninstall
 - Exit code: 0 done (items for a person may remain), 1 a step failed, 2 refused,
   3 another batch is running.
 
-**Batch or menu?** The batch is for the long, repetitive work on the Mac Mini
+**Batch or menu?** The batch is for the long, repetitive work on the processing Mac
 (conversion, BIDS, SAMSEG, recon, tables), nightly and unattended. The student
 menu (`Pipeline_Alunos/iniciar.command`) is for what needs a person: reading
 the last summary (item R), visual QC in freeview with pass/fail recorded in

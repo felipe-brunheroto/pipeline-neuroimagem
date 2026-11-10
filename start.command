@@ -151,3 +151,4 @@ else
 fi
 echo
 echo "Done. Summaries: projects/<NAME>/logs/batch/last_summary.md - students: Pipeline_Alunos/iniciar.command"
+echo "Something looks wrong? Pipeline_Alunos/diagnostico.command checks this Mac and explains each item."

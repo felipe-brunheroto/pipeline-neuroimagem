@@ -112,9 +112,11 @@ def caminhos():
 
 # Cada passo: (rotulo, titulo, script, explicacao em portugues, precisa_freesurfer)
 PASSOS = [
-    ("0", "Checar o ambiente", "check_environment.py",
-     "Verifica se as ferramentas (Python, dcm2niix, pydicom) estao instaladas. "
-     "Nao muda nada no computador - so confere e avisa. Comece sempre por aqui.",
+    ("0", "Diagnostico do computador (conferir e arrumar)", "diagnostico.py",
+     "Confere o computador inteiro e explica cada item: Python, dcm2niix, FreeSurfer e "
+     "licenca, espaco em disco, criptografia, o processamento da noite e a ultima rodada. "
+     "So muda algo se voce responder 's' a uma correcao, uma de cada vez. "
+     "Comece sempre por aqui quando algo parecer errado.",
      False),
     ("1", "Converter DICOM em NIfTI", "dicom_to_bids.py",
      "Le os arquivos DICOM do scanner e os converte para NIfTI (.nii.gz), "
@@ -927,7 +929,7 @@ def cabecalho():
     else:
         print("  Mapa:  DICOM -> NIfTI -> desidentificar -> BIDS -> derivados ->")
     print(f"         {face}FreeSurfer -> VOLUMES{lesoes}")
-    print("  Os passos longos rodam sozinhos toda noite no Mac Mini. O SEU")
+    print("  Os passos longos rodam sozinhos toda noite neste Mac. O SEU")
     print("  trabalho e o que precisa de uma pessoa: itens R, C e S abaixo.")
     print("  Em caso de duvida, leia o GUIA_DO_ALUNO.pdf ou chame o responsavel.")
     print("=" * 68)
@@ -968,8 +970,11 @@ def menu():
     print("   R) Resumo da ultima rodada automatica (o que rodou, o que falhou)")
     print("   C) Conferir a qualidade (QC) dos exames prontos, no freeview")
     print("   S) Series desconhecidas: revisar e ensinar uma regra")
+    print("   0) Algo parece errado? Diagnostico do computador (explica e arruma)")
     print("\n  PASSOS (rodar a mao so quando o responsavel pedir):")
     for num, titulo, _script, _exp, fs in passos_do_projeto():
+        if num == "0":          # ja listado acima: e de uso livre, nao um passo
+            continue
         marca = "  (precisa do FreeSurfer)" if fs else ""
         print(f"   {num}) {titulo}{marca}")
         if ENTRADA == "bids" and num == "1":
@@ -990,7 +995,7 @@ def rodar_passo(num):
     _num, titulo, script, exp, precisa_fs = passo
     caminho = RAIZ / "code" / script
     rodando, desde = batch_rodando()
-    if rodando and script != "check_environment.py":
+    if rodando and script != "diagnostico.py":
         print(f"\n  O processamento automatico esta rodando agora (desde {desde}).")
         print("  Nao rode passos a mao ao mesmo tempo (eles mexeriam nas mesmas")
         print("  pastas). Use o item R para acompanhar, ou espere ele terminar.")
@@ -1004,8 +1009,8 @@ def rodar_passo(num):
         print(f"         esperado em: {caminho}")
         return
     if precisa_fs:
-        print("\n  Atencao: este passo precisa do FreeSurfer carregado")
-        print("  (no computador de Recon). Se nao estiver, ele vai avisar.")
+        print("\n  Atencao: este passo precisa do FreeSurfer carregado.")
+        print("  Se nao estiver, ele vai avisar (o item 0 mostra o porque).")
 
     # Passo 1 precisa saber ONDE estao os DICOM: conferimos (e ajustamos) antes.
     extra_args = []

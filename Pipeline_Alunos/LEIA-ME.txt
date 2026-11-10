@@ -19,14 +19,22 @@ COMECE ASSIM (2 passos):
      (Só na primeira vez.)
 
 O QUE E O SEU TRABALHO AGORA:
-  O computador (Mac Mini) roda sozinho, toda noite, as etapas
+  O Mac de processamento roda sozinho, toda noite, as etapas
   longas: conversao, BIDS, FreeSurfer e SAMSEG. Voce cuida do
   que precisa de uma pessoa, pelo menu:
     R) ler o resumo da ultima rodada (o que rodou, o que falhou)
     C) conferir a qualidade (QC) das imagens prontas no freeview
        e marcar aprovado/reprovado
     S) ensinar ao pipeline uma serie que ele nao reconheceu
-  Os passos 0-8 continuam no menu para quando o responsavel pedir.
+    0) algo parece errado? o diagnostico confere o computador,
+       explica cada item e oferece a correcao (so com o seu "s")
+  Os passos 1-8 continuam no menu para quando o responsavel pedir.
+
+ALGO PARECE ERRADO?
+  De 2 cliques em diagnostico.command (ou item 0 do menu). Ele
+  diz o que esta OK, o que FALTA e como resolver, e salva o
+  relatorio em logs/diagnostico/ (sem dado de paciente) para
+  voce mandar ao responsavel.
 
 ONDE FICAM OS EXAMES (DICOM):
   O passo 1 procura, por padrão, na pasta "Patient Files" ao lado
@@ -38,6 +46,7 @@ ONDE FICAM OS EXAMES (DICOM):
 O QUE TEM NESTA PASTA:
   GUIA_DO_ALUNO.pdf      o guia completo, em português
   iniciar.command        dê 2 cliques para abrir o menu guiado
+  diagnostico.command    dê 2 cliques para conferir o computador
   passos.py              o menu (é o que o iniciar.command abre)
   LEIA-ME.txt            este arquivo
   SOBRE_FAIR.txt         por que fazemos assim (ciência aberta)
