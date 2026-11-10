@@ -71,3 +71,14 @@ def test_no_schedule_is_missing(tmp_path):
     r = s.run("diagnostico.py", "CBR", env, *ARGS)
     assert "[ FALTA] Agendamento: nenhum processamento agendado" in r.stdout
     assert r.returncode == 1
+
+
+def test_shows_the_recon_cap_of_the_schedule(tmp_path):
+    env, _projects, home = make_env(tmp_path)
+    write_job(home, "nightly", s.REPO, env["FREESURFER_HOME"])
+    plist = home / "Library" / "LaunchAgents" / "org.pipeline-neuroimagem.nightly.plist"
+    job = plistlib.loads(plist.read_bytes())
+    job["ProgramArguments"][2] += " --wait 720 --jobs 2"
+    plist.write_bytes(plistlib.dumps(job))
+    out = s.run("diagnostico.py", "CBR", env, *ARGS).stdout
+    assert "todo dia as 22:30, ate 2 FreeSurfer ao mesmo tempo" in out

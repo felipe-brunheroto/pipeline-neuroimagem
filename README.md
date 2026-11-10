@@ -289,6 +289,7 @@ python3 code/run_batch.py --project COGAGING             # run it now (FreeSurfe
 python3 code/pipeline.py run                             # inbox/, then every study in turn
 python3 code/pipeline.py schedule --at 22:30             # every night, every study (one job)
 python3 code/pipeline.py schedule --at 22:30 --watch     # + when data is added
+python3 code/pipeline.py schedule --at 22:30 --jobs 2    # at most 2 recon-all at once (shared Mac)
 python3 code/install_schedule.py --all --uninstall
 ```
 
@@ -324,6 +325,10 @@ python3 code/install_schedule.py --all --uninstall
 - **Parallelism (64 GB).** recon-all: `--threads 2` and as many jobs as the
   performance cores and ~8 GB per job allow (4–5 on the M4 Pro); SAMSEG: 4
   threads, ~12 GB per job. Override with `--jobs/--threads/--samseg-jobs/--samseg-threads`.
+  **On a Mac shared with other heavy work** (e.g. another study's own scripts or Docker
+  containers at night), cap recon-all in the schedule itself: `pipeline.py schedule
+  --jobs 2` writes `--jobs 2` into the nightly job; `start.command` asks for it, and
+  `diagnostico.py` shows the cap and keeps it when it reinstalls the schedule.
 - **Awake only while running:** `caffeinate -is -w <pid>` for the run's
   lifetime. A sleeping Mac runs a missed nightly job when it wakes; to wake it,
   `sudo pmset repeat wakeorpoweron MTWRFSU 22:25:00` (printed by the installer).
