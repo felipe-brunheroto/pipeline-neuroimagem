@@ -169,5 +169,9 @@ def test_cbr_batch_matches_the_manual_steps(cbr):
 
     a = contents(tmp / "bids_A", RUN_LOGS)
     c = contents(bids, RUN_LOGS)
+    # Since 11/nov/2026 the CBR batch does not deface (project.json steps.deface
+    # = false); the manual run above still does, so its defaced copy is left out.
+    a = {k: v for k, v in a.items() if not k.startswith("derivatives/defaced/")}
+    assert not any(k.startswith("derivatives/defaced/") for k in c)
     assert len(a) > 50
     assert diff(a, c) == []
