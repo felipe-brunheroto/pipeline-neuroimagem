@@ -13,6 +13,6 @@
     "fmap": "phase_only"
   },
   "acquisition_note": "Facts about this protocol, verified in its DICOMs: multi-TI 3D PASL without an M0 series, and a gre_field_mapping that exported the phase image only. make_derivatives.py writes them into the ASL / field-map scaffolds; a study that does not declare them gets REQUIRED_FILL_ME for the researcher.",
-  "steps": {"deface": false, "samseg": false},
-  "steps_note": "No defacing (decided 11/nov/2026 on the advisor's advice, as in COGAGING). FreeSurfer always reads the original bids/sub-*; a defaced copy is only for external sharing, made by hand with deface_anat.py when that is decided."
+  "steps": {"deface": true, "samseg": false},
+  "steps_note": "Defacing ON, as a sharing copy only (decided 11/nov/2026). FreeSurfer, SAMSEG and every analysis read the original bids/sub-*; deface writes a separate bids/derivatives/defaced/ that no step reads, kept for external sharing. The advisor had advised against defacing; it stays on because nothing is analysed on the defaced images (confirm with the advisor before sharing). FreeSurfer outputs (orig.mgz, rawavg.mgz, T1.mgz, nu.mgz) still show the face."
 }
