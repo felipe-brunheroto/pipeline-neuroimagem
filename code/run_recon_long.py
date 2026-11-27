@@ -34,7 +34,7 @@ so you can point --input at the DEFACED tree for a privacy-preserving recon:
 EXAMPLES
 --------
     python run_recon_long.py --dry-run                 # print the full plan
-    python run_recon_long.py --subjects-dir ~/fs_subjects --jobs 4 --threads 4
+    python run_recon_long.py --subjects-dir ~/fs_subjects --threads 4
     python run_recon_long.py --stages cross            # only the cross stage
 """
 
@@ -48,6 +48,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import paths
+import heavy_lock
 
 
 # Keyword rules to pick the anatomical role from a file name (FLAIR first, as a
@@ -171,6 +172,12 @@ def build_plan(tree, subjects_dir, pial, threads, extra_flags=()):
     return plan
 
 
+# Every heavy run (queue wait, duration, peak memory) is recorded here.
+HEAVY_RECORD = paths.PROJECT_ROOT / "logs" / "heavy_runs.tsv"
+# Exit code reported for a run refused for lack of RAM (nothing was run).
+NOT_RUN_RC = 75
+
+
 def run_stage(stage_name, items, subjects_dir, jobs, force, env):
     """Run one stage's commands with up to `jobs` in parallel."""
     to_run = []
@@ -188,12 +195,25 @@ def run_stage(stage_name, items, subjects_dir, jobs, force, env):
 
     def _one(fs_subject, cmd):
         log_path = os.path.join(log_dir, f"{fs_subject}.{stage_name}.log")
-        with open(log_path, "w", encoding="utf-8") as logf:
-            logf.write(" ".join(cmd) + "\n\n")
-            logf.flush()
-            proc = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT,
-                                  env=env)
-        return fs_subject, proc.returncode, log_path
+        threads = cmd[cmd.index("-openmp") + 1] if "-openmp" in cmd else ""
+        # One heavy analysis at a time on the whole machine (heavy_lock.py):
+        # this waits for its turn, checks the RAM and records the run.
+        try:
+            with heavy_lock.slot("recon-all", fs_subject, project=paths.PROJECT_NAME,
+                                 threads=threads, record_path=str(HEAVY_RECORD)) as slot:
+                with open(log_path, "w", encoding="utf-8") as logf:
+                    logf.write(" ".join(cmd) + "\n\n")
+                    logf.flush()
+                    rc, peak = heavy_lock.run_measured(
+                        cmd, stdout=logf, stderr=subprocess.STDOUT, env=env)
+                slot.peak_rss_gb = peak
+                slot.result = "ok" if rc == 0 else f"failed (rc={rc})"
+        except (heavy_lock.InsufficientRAM, heavy_lock.NotEnoughFreeMemory) as exc:
+            with open(log_path, "w", encoding="utf-8") as logf:
+                logf.write(f"NOT RUN: {exc}\n")
+            print(f"  [NOT RUN] {exc}")
+            return fs_subject, NOT_RUN_RC, log_path
+        return fs_subject, rc, log_path
 
     failures = 0
     with ThreadPoolExecutor(max_workers=jobs) as pool:
@@ -275,8 +295,9 @@ def main():
     parser.add_argument("--threads", type=int, default=4,
                         help="OpenMP threads PER recon-all (default: 4).")
     parser.add_argument("--jobs", type=int, default=1,
-                        help="recon-all processes to run in PARALLEL (default: 1). "
-                             "Budget ~8 GB RAM and `threads` cores per job.")
+                        help="recon-all processes started side by side (default: "
+                             "1). They still run one at a time on the machine "
+                             "(heavy_lock.py: ~32 GB each with FreeSurfer 8).")
     parser.add_argument("--stages", default="cross,base,long",
                         help="Comma list of stages to run (default: all).")
     parser.add_argument("--dry-run", action="store_true",
@@ -296,6 +317,12 @@ def main():
     if not os.path.isdir(args.input):
         print(f"ERROR: input root not found: {args.input}")
         sys.exit(1)
+
+    cap = heavy_lock.max_threads()
+    if args.threads > cap:
+        print(f" NOTE: --threads {args.threads} capped to {cap} for the RAM / cores "
+              "of this machine (heavy_lock.max_threads).")
+        args.threads = cap
 
     tree = discover(args.input)
     if not tree:

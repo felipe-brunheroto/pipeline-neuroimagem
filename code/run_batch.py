@@ -65,11 +65,14 @@ KEEPING THE MAC AWAKE
   While it runs, `caffeinate -is -w <pid>` keeps the Mac from sleeping; it ends
   with the run (--no-caffeinate to skip).
 
-PARALLELISM (sized for the 64 GB Mac Mini)
-  recon-all: --jobs x --threads (default threads 2; jobs = what the performance
-  cores and ~8 GB of RAM per job allow: 4-5 on an M4 Pro / 64 GB).
-  SAMSEG: --samseg-jobs x --samseg-threads (default 4 threads, ~12 GB per job).
-  Steps run one after the other, so the two never compete.
+ONE HEAVY ANALYSIS AT A TIME (heavy_lock.py)
+  FreeSurfer 8 asks for ~32 GB of RAM per recon-all, so every recon-all and
+  every SAMSEG session waits for its turn in a machine-wide queue (first come,
+  first served, across projects, clones and scripts run by hand), after a RAM
+  check, and is recorded in projects/<NAME>/logs/heavy_runs.tsv (wait,
+  duration, peak memory). Default: 1 job; --threads is capped by the RAM
+  (heavy_lock.max_threads). The recon-all mode is never changed to save
+  memory: a machine without the RAM is reported, not worked around.
 
 EXIT CODE: 0 done (items for a person may remain), 1 a step failed, 2 refused
 to start, 3 another run holds the lock.
@@ -168,33 +171,6 @@ def last_error(log_path, fallback=None):
         if re.search(r"error|failed|abort|not found|stopping", line, re.IGNORECASE):
             return line[:240]
     return (lines[-1][:240] if lines else fallback) or "no output"
-
-
-def machine():
-    """(performance cores, RAM in GB). On Apple Silicon the efficiency cores
-    are left out: recon-all on them is several times slower."""
-    def sysctl(key):
-        try:
-            out = subprocess.run(["sysctl", "-n", key], capture_output=True,
-                                 text=True, timeout=10).stdout.strip()
-            return int(out) if out.isdigit() else None
-        except Exception:
-            return None
-    cores = sysctl("hw.perflevel0.physicalcpu") or os.cpu_count() or 4
-    ram = sysctl("hw.memsize")
-    if ram is None:
-        try:
-            ram = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-        except (ValueError, OSError, AttributeError):
-            ram = 16 * GB
-    return cores, ram / GB
-
-
-def auto_jobs(threads, gb_per_job):
-    """How many runs fit side by side: cores / threads, and RAM (keeping 8 GB
-    for the system) / gb_per_job."""
-    cores, ram_gb = machine()
-    return max(1, min(cores // max(1, threads), int((ram_gb - 8) // gb_per_job)))
 
 
 def load_state():
@@ -566,8 +542,10 @@ class Run:
         self.result = "OK"
         self.state = load_state()
         self.redact = make_redactor()
-        self.recon_jobs = args.jobs or auto_jobs(args.threads, 8)
-        self.samseg_jobs = args.samseg_jobs or auto_jobs(args.samseg_threads, 12)
+        # One heavy analysis at a time on the machine (heavy_lock.py): more jobs
+        # would only wait in its queue.
+        self.recon_jobs = args.jobs or 1
+        self.samseg_jobs = args.samseg_jobs or 1
         self.n_logs = 0
 
     def say(self, msg=""):
@@ -908,7 +886,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would run; run nothing, write nothing.")
     parser.add_argument("--jobs", type=int, default=0,
-                        help="recon-all runs in parallel (default: auto from cores/RAM).")
+                        help="recon-all runs started side by side (default 1; they still run one at a time, see heavy_lock.py).")
     parser.add_argument("--threads", type=int, default=2,
                         help="OpenMP threads per recon-all (default 2).")
     parser.add_argument("--samseg-jobs", type=int, default=0,

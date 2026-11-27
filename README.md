@@ -253,11 +253,12 @@ Workflow:
 
    python code/run_recon_long.py --project CBR --dry-run                  # preview the plan
    python code/run_recon_long.py --project CBR --input projects/CBR/bids/derivatives/defaced \
-       --jobs 4 --threads 4                                 # cross -> base -> long
+       --threads 2                                          # cross -> base -> long
    ```
    Output lands in `bids/derivatives/freesurfer/` (a declared BIDS derivative);
    pass `--input projects/CBR/bids/derivatives/defaced` to recon the privacy-preserving tree.
-   ~8 GB RAM + `threads` cores per job; `--jobs 4` is comfortable on 64 GB.
+   FreeSurfer 8 asks for ~32 GB of RAM per recon-all: every recon-all waits for
+   its turn in the machine-wide queue (`code/heavy_lock.py`), one at a time.
 3. **QC** the surfaces (freeview; check the Euler number) before trusting any
    subject.
 4. **Extract metrics** with `python code/extract_fs_stats.py --project CBR` (wraps
@@ -322,9 +323,15 @@ python3 code/install_schedule.py --all --uninstall
   (default 50) free. The batch always passes `--subjects-dir
   bids/derivatives/freesurfer`, so the `SUBJECTS_DIR` set by
   `SetUpFreeSurfer.sh` is never used by mistake.
-- **Parallelism (64 GB).** recon-all: `--threads 2` and as many jobs as the
-  performance cores and ~8 GB per job allow (4–5 on the M4 Pro); SAMSEG: 4
-  threads, ~12 GB per job. Override with `--jobs/--threads/--samseg-jobs/--samseg-threads`.
+- **One heavy analysis at a time (`code/heavy_lock.py`).** FreeSurfer 8 asks for
+  ~32 GB of RAM per recon-all, so every recon-all and SAMSEG session, from the
+  batch, the menu or a script run by hand, in any project or clone, waits for its
+  turn in one machine-wide queue (`/Users/Shared/pipeline-neuroimagem/`, first
+  come, first served) after a RAM check, and is recorded in
+  `projects/<NAME>/logs/heavy_runs.tsv` (wait, duration, peak memory).
+  `python code/heavy_lock.py status` shows what runs and what waits. The
+  recon-all mode is never changed to save memory: a machine without the RAM is
+  reported, not worked around. `--threads` is capped by the RAM (never raised).
   **On a Mac shared with other heavy work** (e.g. another study's own scripts or Docker
   containers at night), cap recon-all in the schedule itself: `pipeline.py schedule
   --jobs 2` writes `--jobs 2` into the nightly job; `start.command` asks for it, and

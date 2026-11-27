@@ -46,8 +46,8 @@ time it:
      is reported and left where it is. Dragged folders are **copied**.
 5. processes every study now (or leaves it for the night);
 6. offers to repeat 4–5 every night at 22:30 (one launchd job for all studies), and
-   asks how many recon-all may run at once (ENTER = as many as fit; 2 when the Mac is
-   shared with other heavy work, each recon-all takes ~8 GB).
+   asks how many recon-all may be started at once (they still run one at a time:
+   FreeSurfer 8 takes ~32 GB each, see `code/heavy_lock.py`).
 
 Something looks wrong (nothing processed overnight, a step refuses to start)?
 Double-click `Pipeline_Alunos/diagnostico.command`: it checks this Mac, explains

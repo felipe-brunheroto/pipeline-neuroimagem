@@ -51,6 +51,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import paths
+import heavy_lock
 import run_recon_long as rrl
 
 LESION_LABEL = "99"
@@ -153,18 +154,34 @@ def write_dataset_description(samseg_dir, fs_version):
         f.write("sub-*/\n")
 
 
+HEAVY_RECORD = paths.PROJECT_ROOT / "logs" / "heavy_runs.tsv"
+
+
 def process(item, threshold, threads, fs_version, env):
     sub, ses, t1, flair, out_dir = item
-    os.makedirs(out_dir, exist_ok=True)
     log_path = os.path.join(out_dir, "samseg_pipeline.log")
-    with open(log_path, "w", encoding="utf-8") as log:
-        for cmd in commands(t1, flair, out_dir, threshold, threads):
-            log.write("$ " + " ".join(cmd) + "\n")
-            log.flush()
-            rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,
-                                env=env, cwd=out_dir).returncode
-            if rc != 0:
-                return sub, ses, rc, log_path
+    # One heavy analysis at a time on the whole machine (heavy_lock.py).
+    try:
+        with heavy_lock.slot("samseg", f"{sub}_{ses}", project=paths.PROJECT_NAME,
+                             threads=threads, record_path=str(HEAVY_RECORD)) as slot:
+            os.makedirs(out_dir, exist_ok=True)
+            peak = 0.0
+            with open(log_path, "w", encoding="utf-8") as log:
+                for cmd in commands(t1, flair, out_dir, threshold, threads):
+                    log.write("$ " + " ".join(cmd) + "\n")
+                    log.flush()
+                    rc, cmd_peak = heavy_lock.run_measured(
+                        cmd, stdout=log, stderr=subprocess.STDOUT, env=env, cwd=out_dir)
+                    peak = max(peak, cmd_peak)
+                    if rc != 0:
+                        break
+            slot.peak_rss_gb = peak
+            slot.result = "ok" if rc == 0 else f"failed (rc={rc})"
+    except (heavy_lock.InsufficientRAM, heavy_lock.NotEnoughFreeMemory) as exc:
+        print(f"  [NOT RUN] {exc}")
+        return sub, ses, 75, f"(not run: {exc})"
+    if rc != 0:
+        return sub, ses, rc, log_path
     with open(os.path.join(out_dir, "run_info.json"), "w", encoding="utf-8") as f:
         json.dump({
             "threshold": threshold,
