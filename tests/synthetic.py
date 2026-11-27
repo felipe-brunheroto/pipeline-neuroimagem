@@ -208,6 +208,13 @@ def env_for(projects, fs_home=None, extra_path=(), **extra):
         # the batch must not follow it.
         env["SUBJECTS_DIR"] = str(Path(fs_home) / "subjects")
     env["PATH"] = os.pathsep.join(path + [env.get("PATH", "")])
+    # The machine-wide heavy-run queue (heavy_lock.py) of the tests lives in the
+    # temporary folder, never in the real /Users/Shared one; the RAM is faked
+    # as a 64 GB Mac Mini with room free, and the queue polls fast.
+    env["PIPELINE_HEAVY_LOCK_DIR"] = str(Path(projects) / ".heavy-lock")
+    env["PIPELINE_FAKE_RAM_GB"] = "64"
+    env["PIPELINE_FAKE_FREE_GB"] = "60"
+    env["PIPELINE_HEAVY_POLL"] = "0.05"
     env.update({k: str(v) for k, v in extra.items()})
     return env
 
